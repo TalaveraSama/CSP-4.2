@@ -1,6 +1,5 @@
 import { Router, type NextFunction, type Request, type Response } from 'express';
-import { CspError, type CspClient } from './csp/client.js';
-import { parseStatusResponse } from './csp/xml.js';
+import { BackendError, type ProxyBackend } from './backend.js';
 import type { StatusCommand } from './csp/types.js';
 import { COOKIE_NAME, type PanelSession, type SessionStore } from './sessions.js';
 
@@ -26,7 +25,7 @@ function qs(req: Request, key: string): string | undefined {
   return undefined;
 }
 
-export function createApiRouter(csp: CspClient, sessions: SessionStore, secureCookies: boolean): Router {
+export function createApiRouter(backend: ProxyBackend, sessions: SessionStore, secureCookies: boolean): Router {
   const api = Router();
 
   const requireSession = (req: Request, res: Response, next: NextFunction) => {
@@ -47,13 +46,13 @@ export function createApiRouter(csp: CspClient, sessions: SessionStore, secureCo
     next();
   };
 
-  /** Runs status commands and returns the parsed snapshot. */
-  const snapshot = (req: Request, commands: StatusCommand[]) => csp.status(req.session!.auth, commands).then(parseStatusResponse);
+  /** Collects the requested sections into a normalised snapshot. */
+  const snapshot = (req: Request, commands: StatusCommand[]) => backend.snapshot(req.session!.auth, commands);
 
   /* --------------------------------------------------------------- meta */
 
   api.get('/meta', (_req, res) => {
-    res.json({ backend: csp.kind, target: csp.target, panel: '0.1.0' });
+    res.json({ ...backend.info, panel: '0.2.0' });
   });
 
   /* --------------------------------------------------------------- auth */
@@ -64,7 +63,7 @@ export function createApiRouter(csp: CspClient, sessions: SessionStore, secureCo
       const { user, password } = (req.body ?? {}) as { user?: string; password?: string };
       if (!user || !password) return res.status(400).json({ error: 'user and password are required' });
 
-      const identity = await csp.login(user, password);
+      const identity = await backend.login(user, password);
       if (!identity) return res.status(401).json({ error: 'invalid credentials' });
 
       const session = sessions.create(identity, { user, password, sessionId: identity.sessionId });
@@ -191,12 +190,11 @@ export function createApiRouter(csp: CspClient, sessions: SessionStore, secureCo
     wrap(async (req, res) => {
       const params: Record<string, string> = {};
       for (const [k, v] of Object.entries(req.query)) if (typeof v === 'string') params[k] = v;
-      const xml = await csp.status(req.session!.auth, [{ command: req.params.command!, params }]);
       if (qs(req, 'format') === 'xml') {
-        res.type('application/xml').send(xml);
+        res.type('application/xml').send(await backend.raw(req.session!.auth, req.params.command!, params));
         return;
       }
-      res.json(parseStatusResponse(xml));
+      res.json(await snapshot(req, [{ command: req.params.command!, params }]));
     }),
   );
 
@@ -211,7 +209,7 @@ export function createApiRouter(csp: CspClient, sessions: SessionStore, secureCo
         if (v === undefined || v === null || v === '') continue;
         params[k] = String(v);
       }
-      const result = await csp.control(req.session!.auth, req.params.name!, params);
+      const result = await backend.control(req.session!.auth, req.params.name!, params);
       res.status(result.ok ? 200 : 400).json(result);
     }),
   );
@@ -220,8 +218,8 @@ export function createApiRouter(csp: CspClient, sessions: SessionStore, secureCo
     '/config',
     requireAdmin,
     wrap(async (req, res) => {
-      const xml = await csp.fetchConfig(req.session!.auth);
-      res.type('application/xml').send(xml);
+      const file = await backend.fetchConfig(req.session!.auth, qs(req, 'file'));
+      res.json(file);
     }),
   );
 
@@ -229,9 +227,11 @@ export function createApiRouter(csp: CspClient, sessions: SessionStore, secureCo
     '/config',
     requireAdmin,
     wrap(async (req, res) => {
-      const xml = typeof req.body === 'string' ? req.body : String((req.body as { xml?: string })?.xml ?? '');
-      if (!xml.trim()) return res.status(400).json({ ok: false, message: 'empty config' });
-      const result = await csp.saveConfig(req.session!.auth, xml);
+      const body = req.body as { content?: string; file?: string } | string;
+      const content = typeof body === 'string' ? body : String(body?.content ?? '');
+      if (!content.trim()) return res.status(400).json({ ok: false, message: 'empty config' });
+      const file = typeof body === 'string' ? qs(req, 'file') : (body?.file ?? qs(req, 'file'));
+      const result = await backend.saveConfig(req.session!.auth, content, file);
       return res.status(result.ok ? 200 : 400).json(result);
     }),
   );
@@ -239,7 +239,7 @@ export function createApiRouter(csp: CspClient, sessions: SessionStore, secureCo
   /* --------------------------------------------------------------- errors */
 
   api.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-    if (err instanceof CspError) {
+    if (err instanceof BackendError) {
       res.status(err.status).json({ error: err.message });
       return;
     }

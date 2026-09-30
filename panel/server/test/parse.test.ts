@@ -28,7 +28,7 @@ test('parses login responses', () => {
 
 test('parses a full status response from the mock node', async () => {
   const csp = new MockCspClient();
-  const xml = await csp.status(auth, [
+  const xml = await csp.statusXml([
     { command: 'proxy-status' },
     { command: 'cache-status' },
     { command: 'ca-profiles' },
@@ -78,7 +78,7 @@ test('control commands round-trip through the mock', async () => {
   const csp = new MockCspClient();
   const res = await csp.control(auth, 'disable-connector', { name: 'peer-leon' });
   assert.equal(res.ok, true);
-  const xml = await csp.status(auth, [{ command: 'cws-connectors' }]);
+  const xml = await csp.statusXml([{ command: 'cws-connectors' }]);
   const conn = parseStatusResponse(xml).connectors.find((c) => c.name === 'peer-leon');
   assert.equal(conn?.connectedNow, false);
 });

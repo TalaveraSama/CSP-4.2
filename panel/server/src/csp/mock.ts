@@ -1,5 +1,7 @@
-import type { CspAuth, CspClient, LoginResult } from './client.js';
-import type { StatusCommand } from './types.js';
+import type { BackendAuth, BackendInfo, ConfigFile, LoginResult, ProxyBackend } from '../backend.js';
+import { cspInfo } from './client.js';
+import { parseStatusResponse } from './xml.js';
+import type { StatusCommand, StatusSnapshot } from './types.js';
 
 /**
  * A self-contained fake CSP node.
@@ -94,9 +96,8 @@ const MOCK_CONFIG = `<?xml version="1.0" encoding="UTF-8"?>
 </cardservproxy>
 `;
 
-export class MockCspClient implements CspClient {
-  readonly kind = 'mock' as const;
-  readonly target = 'mock://csp-4.2';
+export class MockCspClient implements ProxyBackend {
+  readonly info: BackendInfo = cspInfo('mock://csp-4.2', true);
 
   private counters = { ecm: 184_233, emm: 9_812, hits: 96_144, denied: 412, failures: 87, filtered: 1_205 };
   private lastTick = Date.now();
@@ -144,7 +145,8 @@ export class MockCspClient implements CspClient {
     };
   }
 
-  async status(_auth: CspAuth, commands: StatusCommand[]): Promise<string> {
+  /** Renders the same xml dialect a real CSP node would answer with. */
+  async statusXml(commands: StatusCommand[]): Promise<string> {
     this.tick();
     const parts: string[] = [];
     for (const c of commands) {
@@ -154,7 +156,15 @@ export class MockCspClient implements CspClient {
     return `<?xml version="1.0" encoding="UTF-8"?>\n<cws-status-resp ver="1.0">\n${parts.join('\n')}\n</cws-status-resp>`;
   }
 
-  async control(_auth: CspAuth, command: string, params: Record<string, string | undefined>) {
+  async snapshot(_auth: BackendAuth, sections: StatusCommand[]): Promise<StatusSnapshot> {
+    return parseStatusResponse(await this.statusXml(sections));
+  }
+
+  raw(_auth: BackendAuth, command: string, params: Record<string, string>): Promise<string> {
+    return this.statusXml([{ command, params }]);
+  }
+
+  async control(_auth: BackendAuth, command: string, params: Record<string, string | undefined>) {
     this.tick();
     const name = params.name ?? '';
     switch (command) {
@@ -176,11 +186,11 @@ export class MockCspClient implements CspClient {
     }
   }
 
-  async fetchConfig(): Promise<string> {
-    return this.config;
+  async fetchConfig(): Promise<ConfigFile> {
+    return { name: 'proxy.xml', content: this.config, writable: true };
   }
 
-  async saveConfig(_auth: CspAuth, xml: string) {
+  async saveConfig(_auth: BackendAuth, xml: string) {
     if (!xml.trim().startsWith('<')) return { ok: false, message: 'Error: not an xml document' };
     this.config = xml;
     return { ok: true, message: 'Configuration updated (mock, not persisted)' };

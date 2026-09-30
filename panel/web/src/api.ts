@@ -25,9 +25,30 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export interface Meta {
-  backend: 'http' | 'mock';
+  kind: 'csp' | 'oscam';
+  mock: boolean;
   target: string;
   panel: string;
+  configFormat: 'xml' | 'ini';
+  configFiles: string[];
+  features: {
+    profiles: boolean;
+    cache: boolean;
+    plugins: boolean;
+    connectorServices: boolean;
+    seen: boolean;
+  };
+  labels: {
+    connectors: string;
+    connector: string;
+    profiles: string;
+  };
+}
+
+export interface ConfigFile {
+  name: string;
+  content: string;
+  writable: boolean;
 }
 
 export interface CommandResult {
@@ -61,7 +82,11 @@ export const api = {
   runCommand: (name: string, params: Record<string, string>) =>
     request<CommandResult>(`/commands/${encodeURIComponent(name)}`, { method: 'POST', body: JSON.stringify(params) }),
 
-  config: () => request<string>('/config'),
-  saveConfig: (xml: string) =>
-    request<CommandResult>('/config', { method: 'PUT', headers: { 'content-type': 'application/xml' }, body: xml }),
+  config: (file?: string) => request<ConfigFile>(`/config${query({ file })}`),
+  saveConfig: (content: string, file?: string) =>
+    request<CommandResult>('/config', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ content, file }),
+    }),
 };

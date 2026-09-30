@@ -96,7 +96,7 @@ export function App() {
   const onUnauthorized = useCallback(() => setIdentity(null), []);
 
   const ctx = useMemo(
-    () => (identity ? { identity, interval, profile, setProfile, onUnauthorized, mock: meta?.backend === 'mock' } : null),
+    () => (identity && meta ? { identity, interval, profile, setProfile, onUnauthorized, meta } : null),
     [identity, interval, profile, setProfile, onUnauthorized, meta],
   );
 
@@ -110,6 +110,8 @@ export function App() {
 
   if (!identity || !ctx) return <Login meta={meta} onLogin={setIdentity} />;
 
+  // OSCam calls connectors "readers"; keep the wording of whatever we're talking to.
+  const label = (id: SectionId, fallback: string) => (id === 'connectors' ? ctx.meta.labels.connectors : fallback);
   const visible = SECTIONS.filter((s) => !s.admin || identity.admin);
   const active = visible.find((s) => s.id === route) ?? visible[0]!;
   const Section = active.component;
@@ -129,13 +131,14 @@ export function App() {
           <nav className="nav">
             {visible.map((s) => (
               <button key={s.id} className={s.id === active.id ? 'navitem active' : 'navitem'} onClick={() => go(s.id)}>
-                {s.label}
+                {label(s.id, s.label)}
               </button>
             ))}
           </nav>
           <div className="topright">
             {proxyName && <span className="proxyname">{proxyName}</span>}
-            {meta?.backend === 'mock' && <span className="badge badge-warn">mock data</span>}
+            <span className="badge badge-info">{meta?.kind === 'oscam' ? 'OSCam' : 'CSP'}</span>
+            {meta?.mock && <span className="badge badge-warn">mock data</span>}
             <select
               className="mini-select"
               value={profile}

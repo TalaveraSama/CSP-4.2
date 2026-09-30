@@ -30,7 +30,8 @@ export function Login({ meta, onLogin }: { meta: Meta | undefined; onLogin: (ide
         <p className="login-sub">
           {meta ? (
             <>
-              backend: <code>{meta.backend}</code> · <code>{meta.target}</code>
+              {meta.kind === 'oscam' ? 'OSCam' : 'CardServProxy'}
+              {meta.mock ? ' (mock)' : ''} · <code>{meta.target}</code>
             </>
           ) : (
             'connecting…'
@@ -48,9 +49,9 @@ export function Login({ meta, onLogin }: { meta: Meta | undefined; onLogin: (ide
         <button type="submit" disabled={busy || !user || !password}>
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
-        {meta?.backend === 'mock' && (
+        {meta?.mock && (
           <p className="login-hint">
-            Mock backend: any credentials work. Use <code>admin</code> for admin rights, <code>root</code> for superuser.
+            Mock backend: any credentials work. Use <code>admin</code> for admin rights{meta?.kind === 'csp' ? <>, <code>root</code> for superuser</> : null}.
           </p>
         )}
       </form>

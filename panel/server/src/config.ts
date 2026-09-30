@@ -13,16 +13,22 @@ function int(value: string | undefined, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+export type BackendKind = 'csp' | 'oscam';
+
 export interface AppConfig {
   /** Port the BFF listens on. */
   port: number;
   /** Bind address. 0.0.0.0 so it works inside containers / sandboxes. */
   host: string;
+  /** Which server software to talk to. */
+  backend: BackendKind;
   /** Base url of the legacy CSP proxy http interface, e.g. http://10.0.0.1:8082 */
   cspUrl: string;
-  /** Use the built-in fake CSP (no Java proxy required). */
+  /** Base url of the OSCam web interface, e.g. http://10.0.0.5:8888 */
+  oscamUrl: string;
+  /** Use the built-in fake node for the selected backend (no real server needed). */
   mock: boolean;
-  /** Accept self-signed certificates when cspUrl is https. */
+  /** Accept self-signed certificates when the target is https. */
   insecureTls: boolean;
   /** Idle lifetime of a panel session, in milliseconds. */
   sessionTtlMs: number;
@@ -31,12 +37,24 @@ export interface AppConfig {
 }
 
 export function loadConfig(): AppConfig {
+  const cspUrl = (process.env.CSP_URL ?? 'http://127.0.0.1:8082').replace(/\/+$/, '');
+  const oscamUrl = (process.env.OSCAM_URL ?? 'http://127.0.0.1:8888').replace(/\/+$/, '');
+
+  // BACKEND wins; otherwise whichever url was configured; CSP by default.
+  const explicit = (process.env.BACKEND ?? '').trim().toLowerCase();
+  const backend: BackendKind = explicit === 'oscam' ? 'oscam' : explicit === 'csp' ? 'csp' : process.env.OSCAM_URL ? 'oscam' : 'csp';
+
+  const mockEnv = process.env.MOCK ?? (backend === 'oscam' ? process.env.OSCAM_MOCK : process.env.CSP_MOCK);
+  const configuredUrl = backend === 'oscam' ? process.env.OSCAM_URL : process.env.CSP_URL;
+
   return {
     port: int(process.env.PORT, 8090),
     host: process.env.HOST ?? '0.0.0.0',
-    cspUrl: (process.env.CSP_URL ?? 'http://127.0.0.1:8082').replace(/\/+$/, ''),
-    mock: bool(process.env.CSP_MOCK, !process.env.CSP_URL),
-    insecureTls: bool(process.env.CSP_INSECURE_TLS, true),
+    backend,
+    cspUrl,
+    oscamUrl,
+    mock: bool(mockEnv, !configuredUrl),
+    insecureTls: bool(process.env.CSP_INSECURE_TLS ?? process.env.INSECURE_TLS, true),
     sessionTtlMs: int(process.env.SESSION_TTL_MS, 8 * 60 * 60 * 1000),
     webRoot: process.env.WEB_ROOT ?? new URL('../../web/dist/', import.meta.url).pathname,
   };

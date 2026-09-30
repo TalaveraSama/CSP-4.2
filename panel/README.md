@@ -1,15 +1,18 @@
-# CSP Panel — modern, Java-free web panel for CardServProxy 4.2
+# CSP Panel — modern, Java-free web panel for CardServProxy **and OSCam**
 
 A ground-up replacement for the legacy `cs-status.war` interface. The panel is a
 TypeScript stack (Node BFF + React SPA); **nothing in this folder needs a JVM,
 Ant, a `.war` container, browser XSLT, or the 2009-era `bowweb.js` framework.**
 
-It can run in two modes:
+One UI, two backends — the BFF normalises both dialects into the same model:
 
-| Mode | What it talks to | Java needed? |
-| --- | --- | --- |
-| `CSP_MOCK=1` (default when `CSP_URL` is unset) | built-in synthetic CSP node | **no** |
-| `CSP_URL=http://host:8082` | a real CSP 4.2 node's HTTP/XML API | only the proxy itself |
+| `BACKEND` | Talks to | Endpoint | Auth |
+| --- | --- | --- | --- |
+| `csp` (default) | CardServProxy 4.2 | `/xmlHandler`, `/cfgHandler` | HTTP basic / xml session |
+| `oscam` | OSCam web interface | `/oscamapi.html?part=...` | **HTTP Digest** (MD5), basic fallback |
+
+Either one can run against a built-in synthetic node (`MOCK=1`), so the whole
+panel is demoable with no CSP, no OSCam and no JVM anywhere.
 
 ---
 
@@ -19,37 +22,46 @@ It can run in two modes:
 cd panel
 npm install
 
-# 1) demo / development with synthetic data — no CSP node required
-npm run dev            # API on :8090, UI on :5173 (proxies /api to the API)
+# 1) demo / development with synthetic data — nothing else required
+npm run dev                                   # CSP mock,   API :8090, UI :5173
+BACKEND=oscam MOCK=1 npm run dev              # OSCam mock
 
-# 2) against a real proxy
-CSP_URL=https://proxy-host:8082 npm run dev
+# 2) against a real server
+CSP_URL=https://proxy-host:8082 npm run dev                  # CardServProxy
+BACKEND=oscam OSCAM_URL=http://192.168.1.10:8888 npm run dev # OSCam
 
 # 3) production: one process serving API + SPA
 npm run build
-CSP_URL=https://proxy-host:8082 npm start     # http://0.0.0.0:8090
+OSCAM_URL=http://192.168.1.10:8888 BACKEND=oscam npm start   # http://0.0.0.0:8090
 ```
 
-In mock mode log in with **any** user/password; `admin` gets admin rights and
-`root` gets superuser rights. Against a real node, use any account defined by
-the proxy's user manager (the same credentials as the old panel).
+In mock mode log in with **any** user/password; `admin` gets admin rights.
+Against a real node use the credentials of the proxy's user manager (CSP) or
+`httpuser`/`httppwd` from `[webif]` in `oscam.conf` (OSCam).
 
 Configuration is env-driven, see [`.env.example`](.env.example).
 
-Docker: `docker build -t csp-panel panel && docker run -p 8090:8090 -e CSP_URL=... csp-panel`
+Docker: `docker build -t csp-panel panel && docker run -p 8090:8090 -e BACKEND=oscam -e OSCAM_URL=... csp-panel`
 
 ---
 
 ## Architecture
 
 ```
-browser ──HTTPS/JSON──> BFF (Node/TS, express)  ──HTTP/XML──> CSP node (Java)
-  React SPA                 │                                  /xmlHandler
-  no XML, no XSLT           ├── xml.ts     request builder + parser -> typed model
-  cookie session only       ├── client.ts  HttpCspClient | MockCspClient
-                            ├── sessions.ts  server-side credential store
-                            └── routes.ts    REST API
+browser ──HTTPS/JSON──> BFF (Node/TS, express) ──┬─HTTP/XML──> CSP node (Java)
+  React SPA                 │                    │             /xmlHandler
+  no XML, no XSLT           │                    └─HTTP/XML──> OSCam (C)
+  cookie session only       │                                  /oscamapi.html
+                            ├── backend.ts     ProxyBackend interface + model
+                            ├── csp/           HttpCspClient  | MockCspClient
+                            ├── oscam/         OscamClient (+ digest transport,
+                            │                  MockOscamTransport)
+                            ├── sessions.ts    server-side credential store
+                            └── routes.ts      REST API
 ```
+
+Adding another softcam means implementing one `ProxyBackend` (six methods) —
+the REST API and the entire UI stay untouched.
 
 Why a BFF instead of calling the proxy straight from the browser:
 
@@ -69,15 +81,20 @@ Why a BFF instead of calling the proxy straight from the browser:
 | `GET` | `/connectors`, `/sessions`, `/events`, `/channels`, `/seen`, `/failures` | `?profile=`, `?hideInactive=`, `?all=` |
 | `GET` | `/commands` | ctrl-commands definitions (dynamic, plugin-aware) |
 | `POST` | `/commands/:name` | run a control command (admin) |
-| `GET`/`PUT` | `/config` | fetch/deploy `proxy.xml` (admin) |
+| `GET`/`PUT` | `/config` | fetch/deploy config, `?file=` on OSCam (admin) |
 | `GET` | `/status/:command` | escape hatch for *any* status command, incl. plugin ones — add `?format=xml` for the raw document |
 | `GET` | `/healthz` | liveness, reports the active backend |
 
 ### Frontend sections
 
-`Overview` · `Connectors` · `Sessions` · `Channels` · `Events` · `Logs`
-(last-seen / login failures) · `Admin` (dynamic control-command forms) ·
-`Config` (`proxy.xml` editor with well-formedness validation before deploy).
+`Overview` · `Connectors` (labelled **Readers** on OSCam) · `Sessions` ·
+`Channels` · `Events` · `Logs` (last-seen / login failures) · `Admin` (control
+commands rendered from whatever the backend advertises) · `Config` (editor with
+xml or ini validation before deploying).
+
+The backend publishes feature flags and wording in `/api/meta`, so sections that
+a given server cannot provide (e.g. the cache card on OSCam) are hidden instead
+of showing empty boxes.
 
 Global controls in the top bar: CA-profile filter and auto-refresh interval
 (off / 2s / 5s / 15s / 60s), both persisted in `localStorage`.
@@ -102,6 +119,35 @@ deployments keep working; this panel is additive.
 
 ---
 
+## OSCam mapping
+
+OSCam has no CA profiles, no CSP-style control commands and a different data
+model, so the backend translates:
+
+| OSCam | Panel |
+| --- | --- |
+| clients of type `r` / `p` (`part=status`) | Connectors / **Readers** |
+| clients of type `c` / `m` + `part=userstats` counters | Sessions (ECM/EMM, cache hits, rate) |
+| distinct CAIDs seen in `<request>` | "profiles" used by the global filter |
+| `<request srvid caid>` + channel name | Watched services / Channels |
+| `<log>` CDATA from `part=status&appendlog=1` | Events, warnings and file log (severity inferred) |
+| `part=failban` | Login failures |
+| `part=userstats` users that are offline/disabled | Last seen |
+| `part=status&action=kill|restart`, `part=readerlist&action=…`, `part=userstats&action=…`, `part=shutdown` | Admin command forms |
+| `part=files&file=oscam.conf` (+ `action=Save`) | Config editor (ini) |
+
+Notes:
+
+- OSCam protects the webif with **HTTP Digest** auth, which `fetch` does not
+  implement — `oscam/http.ts` performs the challenge/response itself (and falls
+  back to basic auth, or none, if that is what the box answers with).
+- *Kick user* is resolved to the client thread ids of that user, because OSCam
+  kills threads rather than accounts.
+- The single webif account maps to an admin identity unless `httpreadonly=1`,
+  in which case the panel hides the write actions.
+- Commands CSP has and OSCam does not (osd-message, cache resets…) return a
+  clear "not supported by the OSCam backend" instead of silently doing nothing.
+
 ## Using it with a real CSP node
 
 1. In `proxy.xml`, make sure the HTTP API is reachable:
@@ -118,6 +164,24 @@ works against older CSP releases — unknown sections simply render empty, and
 any status command (including ones added by plugins) is reachable through
 `/api/status/:command`.
 
+## Using it with a real OSCam box
+
+1. In `oscam.conf`:
+   ```ini
+   [webif]
+   httpport   = 8888
+   httpuser   = admin
+   httppwd    = secret
+   httpallowed = 127.0.0.1,192.168.1.0-192.168.1.255   ; must include the panel host
+   ```
+   (`httpport = +8888` enables https; the panel accepts the self-signed cert.)
+2. Start the panel with `BACKEND=oscam OSCAM_URL=http://box-ip:8888`.
+3. Log in with `httpuser` / `httppwd`. If `httpreadonly = 1` the panel becomes
+   read-only automatically.
+
+Any `part=` of the OSCam api — including ones this build does not map — is
+reachable raw through `/api/status/<part>?format=xml`.
+
 ## Development
 
 ```bash
@@ -130,9 +194,9 @@ Layout:
 ```
 panel/
 ├── server/   Node + Express BFF (TypeScript, ESM)
-│   ├── src/csp/xml.ts     XML <-> typed model (the heart of the port)
-│   ├── src/csp/client.ts  real CSP client
-│   ├── src/csp/mock.ts    synthetic CSP node
+│   ├── src/backend.ts     ProxyBackend interface shared by both backends
+│   ├── src/csp/           CardServProxy dialect (xml builder/parser + mock)
+│   ├── src/oscam/         OSCam dialect (digest transport, mapper + mock)
 │   └── src/routes.ts      REST API
 └── web/      React 18 + Vite SPA (TypeScript, no UI framework deps)
 ```

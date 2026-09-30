@@ -6,7 +6,7 @@ import { Badge, Bar, Card, Empty, ErrorBox, Stat } from '../components/ui';
 import { kb, num, pct } from '../format';
 
 export function Overview() {
-  const { interval, profile, onUnauthorized } = useApp();
+  const { interval, profile, onUnauthorized, meta } = useApp();
   const load = useCallback(() => api.overview(profile || undefined), [profile]);
   const { data, error, refresh } = usePolling(load, interval, [profile], onUnauthorized);
 
@@ -22,7 +22,7 @@ export function Overview() {
         <Stat label="Uptime" value={p.duration} sub={`since ${new Date(Number(p.started) || Date.parse(p.started)).toLocaleString()}`} />
         <Stat label="Sessions" value={`${p.activeSessions} / ${p.sessions}`} sub="active / total" />
         <Stat
-          label="Connectors"
+          label={meta.labels.connectors}
           value={`${data.connectors.filter((c) => c.connectedNow).length} / ${data.connectors.length}`}
           sub="online / configured"
           tone={data.connectors.some((c) => !c.connectedNow) ? 'warn' : 'ok'}
@@ -78,6 +78,7 @@ export function Overview() {
           </dl>
         </Card>
 
+        {meta.features.cache && (
         <Card title={`Cache · ${data.cache?.type ?? 'n/a'}`}>
           {data.cache ? (
             <dl className="kv">
@@ -92,19 +93,20 @@ export function Overview() {
             <Empty />
           )}
         </Card>
+        )}
       </div>
 
-      <Card title={`CA profiles (${data.profiles.length})`}>
+      <Card title={`${meta.labels.profiles} (${data.profiles.length})`}>
         {data.profiles.length === 0 ? (
-          <Empty />
+          <Empty>{meta.kind === 'oscam' ? 'No CAID seen yet (no client request so far)' : 'No data'}</Empty>
         ) : (
           <table className="table">
             <thead>
               <tr>
-                <th>Profile</th>
+                <th>{meta.features.profiles && meta.kind === 'csp' ? 'Profile' : 'CAID'}</th>
                 <th>CA id</th>
                 <th>Network</th>
-                <th>Listen ports</th>
+                <th>{meta.kind === 'oscam' ? 'Protocols in use' : 'Listen ports'}</th>
                 <th className="r">Capacity</th>
                 <th className="r">Mapped services</th>
                 <th>Debug</th>

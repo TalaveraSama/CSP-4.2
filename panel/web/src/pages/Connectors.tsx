@@ -13,7 +13,7 @@ function statusTone(c: Connector): 'ok' | 'warn' | 'bad' {
 }
 
 export function Connectors() {
-  const { interval, profile, onUnauthorized, identity } = useApp();
+  const { interval, profile, onUnauthorized, identity, meta } = useApp();
   const load = useCallback(() => api.connectors(profile || undefined), [profile]);
   const { data, error, refresh } = usePolling(load, interval, [profile], onUnauthorized);
   const [open, setOpen] = useState<string | null>(null);
@@ -43,7 +43,7 @@ export function Connectors() {
           {notice}
         </div>
       )}
-      <Card title={`Connectors (${data.connectors.length})`}>
+      <Card title={`${meta.labels.connectors} (${data.connectors.length})`}>
         {data.connectors.length === 0 ? (
           <Empty />
         ) : (
@@ -98,7 +98,7 @@ export function Connectors() {
                             Retry
                           </button>
                           <button className="mini" disabled={busy !== null} onClick={() => run('reset-connector', c.name)}>
-                            Reset map
+                            {meta.kind === 'oscam' ? 'Reread' : 'Reset map'}
                           </button>
                           <button className="mini danger" disabled={busy !== null} onClick={() => run('disable-connector', c.name)}>
                             Disable
@@ -136,6 +136,7 @@ export function Connectors() {
                                 <code>{c.cardData1 ?? '-'}</code>
                               </dd>
                             </dl>
+                            {meta.features.connectorServices && (
                             <div>
                               <h4>Services ({c.services.length})</h4>
                               <ul className="chiplist">
@@ -147,8 +148,9 @@ export function Connectors() {
                                 {c.services.length === 0 && <span className="muted">none</span>}
                               </ul>
                             </div>
+                            )}
                             <div>
-                              <h4>Remote properties</h4>
+                              <h4>{meta.kind === 'oscam' ? 'Reader details' : 'Remote properties'}</h4>
                               <dl className="kv compact">
                                 {c.remoteParams.map((rp) => (
                                   <Fragment key={rp.name}>

@@ -1,4 +1,5 @@
 import { createContext, useContext } from 'react';
+import type { Meta } from './api';
 import type { CspIdentity } from './types';
 
 export interface AppContextValue {
@@ -10,7 +11,8 @@ export interface AppContextValue {
   setProfile: (p: string) => void;
   /** Called when the API answers 401 so the shell can show the login form. */
   onUnauthorized: () => void;
-  mock: boolean;
+  /** Backend description: kind, feature flags and wording. */
+  meta: Meta;
 }
 
 export const AppContext = createContext<AppContextValue | null>(null);
