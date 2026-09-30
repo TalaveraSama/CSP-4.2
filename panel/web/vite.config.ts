@@ -3,7 +3,11 @@ import react from '@vitejs/plugin-react';
 
 const apiTarget = process.env.API_TARGET ?? 'http://127.0.0.1:8090';
 
+// Set BASE_PATH when the panel is served from a sub-directory, e.g. /csp/
+const base = (process.env.BASE_PATH ?? '/').replace(/\/*$/, '/');
+
 export default defineConfig({
+  base,
   plugins: [react()],
   server: {
     host: '0.0.0.0',

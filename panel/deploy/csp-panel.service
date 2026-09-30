@@ -1,0 +1,28 @@
+# systemd unit, for servers without aaPanel/PM2.
+#
+#   sudo cp panel/deploy/csp-panel.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now csp-panel
+
+[Unit]
+Description=CSP/OSCam web panel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/www/wwwroot/csp-panel/panel
+EnvironmentFile=-/www/wwwroot/csp-panel/panel/.env
+ExecStart=/usr/bin/node server/dist/index.js
+Restart=on-failure
+RestartSec=5
+
+# Hardening: the panel only needs outbound network and its own directory.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/www/wwwroot/csp-panel/panel
+
+[Install]
+WantedBy=multi-user.target

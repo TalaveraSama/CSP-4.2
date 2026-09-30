@@ -3,6 +3,18 @@
  * Everything is env-driven so the same build works in dev, docker and on-box.
  */
 
+// Load panel/.env when present (aaPanel/PM2/systemd deployments edit that file).
+// Real environment variables always win. Requires Node >= 20.12.
+for (const candidate of [process.env.ENV_FILE, new URL('../../.env', import.meta.url).pathname, '.env']) {
+  if (!candidate) continue;
+  try {
+    process.loadEnvFile(candidate);
+    break;
+  } catch {
+    /* no .env here, try the next location */
+  }
+}
+
 function bool(value: string | undefined, fallback: boolean): boolean {
   if (value === undefined) return fallback;
   return /^(1|true|yes|on)$/i.test(value.trim());
@@ -34,6 +46,10 @@ export interface AppConfig {
   sessionTtlMs: number;
   /** Directory with the built frontend (served when it exists). */
   webRoot: string;
+  /** Secure flag for the session cookie: auto (follow scheme) | always | never. */
+  secureCookies: 'auto' | 'always' | 'never';
+  /** Comma separated list of proxies to trust, or 'true'/'loopback'. */
+  trustProxy: string;
 }
 
 export function loadConfig(): AppConfig {
@@ -57,6 +73,8 @@ export function loadConfig(): AppConfig {
     insecureTls: bool(process.env.CSP_INSECURE_TLS ?? process.env.INSECURE_TLS, true),
     sessionTtlMs: int(process.env.SESSION_TTL_MS, 8 * 60 * 60 * 1000),
     webRoot: process.env.WEB_ROOT ?? new URL('../../web/dist/', import.meta.url).pathname,
+    secureCookies: (['auto', 'always', 'never'] as const).find((m) => m === process.env.SECURE_COOKIES) ?? 'auto',
+    trustProxy: process.env.TRUST_PROXY ?? 'loopback',
   };
 }
 

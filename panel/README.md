@@ -43,6 +43,19 @@ Configuration is env-driven, see [`.env.example`](.env.example).
 
 Docker: `docker build -t csp-panel panel && docker run -p 8090:8090 -e BACKEND=oscam -e OSCAM_URL=... csp-panel`
 
+### Deployment
+
+| Target | How |
+| --- | --- |
+| **aaPanel** | Node project (PM2) + nginx reverse proxy — step by step in [`deploy/aapanel/README.md`](deploy/aapanel/README.md), with `install.sh`, `ecosystem.config.cjs` and ready nginx snippets |
+| systemd | [`deploy/csp-panel.service`](deploy/csp-panel.service) |
+| Docker | [`Dockerfile`](Dockerfile) |
+
+The server reads `panel/.env` at startup (real env vars win), marks its session
+cookie `Secure` automatically when it sees `X-Forwarded-Proto: https`
+(`SECURE_COOKIES=auto`, `TRUST_PROXY=loopback`), and can be served from a
+sub-directory by building with `BASE_PATH=/csp/ npm run build`.
+
 ---
 
 ## Architecture

@@ -25,7 +25,20 @@ function qs(req: Request, key: string): string | undefined {
   return undefined;
 }
 
-export function createApiRouter(backend: ProxyBackend, sessions: SessionStore, secureCookies: boolean): Router {
+export type SecureCookieMode = 'auto' | 'always' | 'never';
+
+/**
+ * Decides the `Secure` flag of the session cookie.
+ * 'auto' follows the request scheme, honouring X-Forwarded-Proto when the app
+ * runs behind a reverse proxy (nginx in aaPanel, Caddy, Traefik...).
+ */
+function wantsSecure(mode: SecureCookieMode, req: Request): boolean {
+  if (mode === 'always') return true;
+  if (mode === 'never') return false;
+  return req.secure || (req.headers['x-forwarded-proto'] ?? '').toString().split(',')[0]?.trim() === 'https';
+}
+
+export function createApiRouter(backend: ProxyBackend, sessions: SessionStore, secureCookies: SecureCookieMode = 'auto'): Router {
   const api = Router();
 
   const requireSession = (req: Request, res: Response, next: NextFunction) => {
@@ -70,7 +83,7 @@ export function createApiRouter(backend: ProxyBackend, sessions: SessionStore, s
       res.cookie(COOKIE_NAME, session.id, {
         httpOnly: true,
         sameSite: 'lax',
-        secure: secureCookies,
+        secure: wantsSecure(secureCookies, req),
         path: '/',
       });
       return res.json({ user: session.user, admin: session.admin, superUser: session.superUser });

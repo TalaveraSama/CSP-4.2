@@ -9,8 +9,11 @@ export class ApiError extends Error {
   }
 }
 
+/** Honours a sub-directory deployment (vite BASE_PATH / nginx location). */
+const API_BASE = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/api`;
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`/api${path}`, {
+  const res = await fetch(`${API_BASE}${path}`, {
     credentials: 'same-origin',
     headers: init?.body && typeof init.body === 'string' && !init.headers ? { 'content-type': 'application/json' } : undefined,
     ...init,

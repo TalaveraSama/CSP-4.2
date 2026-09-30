@@ -31,7 +31,8 @@ const sessions = new SessionStore(config.sessionTtlMs);
 
 const app = express();
 app.disable('x-powered-by');
-app.set('trust proxy', true);
+// Behind aaPanel/nginx the real scheme and ip arrive in X-Forwarded-*.
+app.set('trust proxy', config.trustProxy === 'true' ? true : config.trustProxy === 'false' ? false : config.trustProxy);
 
 app.use(cookieParser());
 app.use(express.json({ limit: '2mb' }));
@@ -41,7 +42,7 @@ app.get('/healthz', (_req, res) => {
   res.json({ ok: true, backend: backend.info.kind, mock: backend.info.mock, target: backend.info.target });
 });
 
-app.use('/api', createApiRouter(backend, sessions, false));
+app.use('/api', createApiRouter(backend, sessions, config.secureCookies));
 
 // Serve the built SPA when it exists (single-artifact deployment).
 const webRoot = config.webRoot;
