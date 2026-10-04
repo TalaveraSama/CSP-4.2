@@ -42,9 +42,18 @@ curl -fsSL https://raw.githubusercontent.com/TalaveraSama/CSP-4.2/arena/01a0f2ba
 1. Comprueba que es Ubuntu 20.04, 22.04 o 24.04 (`--force` para Debian 11/12).
 2. Instala `curl`, `ca-certificates` y `python3` si faltan.
 3. **Node.js**: Ubuntu trae versiones demasiado viejas (10 en 20.04, 12 en
-   22.04, 18 en 24.04) y el panel necesita >= 20. Si no encuentra una válida,
-   añade el repositorio oficial de NodeSource y instala Node 22
-   (`--node-major 20` para fijar otra línea).
+   22.04, 18 en 24.04) y el panel necesita >= 20. Si no encuentra una válida
+   prueba, por este orden:
+   1. el repositorio **NodeSource** (`deb.nodesource.com`),
+   2. si no responde, el **tarball oficial** de `nodejs.org`, que descarga,
+      verifica con SHA-256 y descomprime en `/opt/node` (enlaces en
+      `/usr/local/bin`).
+
+   Las descargas tienen *timeout* corto y reintentan **forzando IPv4**, que es
+   la causa habitual de los `Connection timed out`. Opciones:
+   `--node-major 20` (otra línea de Node), `--node-from nodesource|tarball|skip`,
+   `NODE_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/nodejs-release` (espejo),
+   o `https_proxy=...` si sales por proxy.
 4. Compila el paquete (`packaging/build-deb.sh`) **como el usuario dueño del
    checkout**, para no dejar `node_modules` propiedad de root, y lo instala con
    `apt install ./csp-panel_*.deb`.
@@ -68,6 +77,7 @@ curl -fsSL https://raw.githubusercontent.com/TalaveraSama/CSP-4.2/arena/01a0f2ba
 | `--no-nginx` | no tocar nginx |
 | `--deb FICHERO` | instalar un `.deb` ya compilado en lugar de compilar |
 | `--node-major N` | línea de Node a instalar si falta (por defecto 22) |
+| `--node-from auto\|nodesource\|tarball\|skip` | de dónde sacar Node; `skip` = ya lo tienes instalado |
 | `-y, --yes` | sin preguntas, valores por defecto |
 | `--force` | ejecutar en una distro no soportada (Debian) |
 | `--uninstall` / `--purge` | desinstalar (conservando / borrando la config) |
@@ -121,6 +131,8 @@ sudo certbot --nginx -d panel.midominio.com
 | El panel arranca pero el login da 403 | en `oscam.conf`/`ncam.conf` `[webif]` falta la IP del panel en `httpallowed`, o `httpuser`/`httppwd` no coinciden |
 | Instalé NCam y el panel da 404 | NCam usa `/ncamapi.html`: asegúrate de `BACKEND=ncam` (no `oscam`) en `panel.env` |
 | `no node interpreter found` | Node instalado con nvm (solo visible para tu usuario): pon `NODE_BIN=/ruta/a/node` en `/etc/csp-panel/panel.env` |
+| `Failed to connect to deb.nodesource.com ... timed out` | NodeSource bloqueado en tu red. El instalador ya cae solo al tarball de `nodejs.org`; si eso también está bloqueado usa un espejo (`NODE_MIRROR=...` con `--node-from tarball`), un proxy (`export https_proxy=...` + `sudo -E`), o instala Node a mano y repite con `--node-from skip` |
+| Sin salida a internet en el servidor | compila el `.deb` en otra máquina (`bash panel/packaging/build-deb.sh`), cópialo y ejecuta `sudo bash install-ubuntu.sh --deb csp-panel_*_all.deb --node-from skip` |
 | `502 Bad Gateway` en nginx | el servicio no está arrancado o `PORT`/`HOST` de `panel.env` no coinciden con el `proxy_pass` del vhost |
 | Certificado autofirmado del softcam | `INSECURE_TLS=1` en `panel.env` (ya viene activado) |
 | Panel en subdirectorio | reinstala con `--base-path /csp/`; el bundle se recompila con esa ruta base |

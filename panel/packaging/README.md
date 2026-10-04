@@ -19,6 +19,11 @@ sudo bash packaging/install-ubuntu.sh --backend ncam \
 sudo bash packaging/install-ubuntu.sh --uninstall           # or --purge
 ```
 
+It installs Node.js when the distro's is too old: first from NodeSource, and
+if that host is unreachable (blocked, proxy, broken IPv6) it falls back to the
+checksum-verified tarball from `nodejs.org` unpacked into `/opt/node`. Use
+`--node-from nodesource|tarball|skip` and `NODE_MIRROR=...` to control it.
+
 Spanish step-by-step guide: [`INSTALL.es.md`](INSTALL.es.md).
 
 ## Build

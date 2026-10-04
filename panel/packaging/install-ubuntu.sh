@@ -18,7 +18,11 @@ set -euo pipefail
 PKG=csp-panel
 CONF_DIR=/etc/$PKG
 CONF=$CONF_DIR/panel.env
-NODE_MAJOR=${NODE_MAJOR:-22}       # NodeSource line used when Node is too old
+NODE_MAJOR=${NODE_MAJOR:-22}       # Node.js line installed when the distro's is too old
+NODE_FROM=${NODE_FROM:-auto}       # auto | nodesource | tarball | skip
+NODE_MIRROR=${NODE_MIRROR:-https://nodejs.org/dist}
+NET_TIMEOUT=${NET_TIMEOUT:-20}     # seconds to wait for a connection
+NET_MAXTIME=${NET_MAXTIME:-600}    # seconds for a whole download
 REPO_URL=${REPO_URL:-https://github.com/TalaveraSama/CSP-4.2.git}
 REPO_BRANCH=${REPO_BRANCH:-arena/01a0f2ba-csp-4-2}   # branch that carries panel/
 SERVICE=$PKG.service
@@ -53,6 +57,10 @@ Usage: sudo bash install-ubuntu.sh [options]
   --no-nginx                 never touch nginx
   --deb FILE                 install this prebuilt .deb instead of building
   --node-major N             Node.js line to install if missing   (default $NODE_MAJOR)
+  --node-from WHERE          auto (default) | nodesource | tarball | skip
+                             'tarball' downloads from $NODE_MIRROR (set
+                             NODE_MIRROR=... for a local/geographic mirror),
+                             'skip' trusts the Node.js already on the box
   -y, --yes                  non-interactive, accept the defaults
   --force                    run on a distribution that is not Ubuntu 20/22/24
   --uninstall                stop and remove the package (keeps the config)
@@ -77,6 +85,7 @@ while [ $# -gt 0 ]; do
     --base-path)   BASE_PATH="${2:?}"; shift 2 ;;
     --deb)         DEB_FILE="${2:?}"; shift 2 ;;
     --node-major)  NODE_MAJOR="${2:?}"; shift 2 ;;
+    --node-from)   NODE_FROM="${2:?}"; shift 2 ;;
     --no-nginx)    WANT_NGINX=no; shift ;;
     -y|--yes)      ASSUME_YES=1; shift ;;
     --force)       FORCE=1; shift ;;
@@ -204,26 +213,116 @@ have python3 || die "python3 is required (apt install python3)"
 ok "curl, ca-certificates, python3"
 
 # ----------------------------------------------------------------- node.js ---
+# Ubuntu ships Node 10 (20.04), 12 (22.04) and 18 (24.04): all too old, the
+# panel needs >= 20. Two independent ways to get one, because NodeSource is
+# blocked or unreachable on plenty of hosts:
+#   1. the NodeSource apt repository (preferred: apt keeps it updated)
+#   2. the official tarball from nodejs.org, unpacked into /opt/node
 node_major() { node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0; }
+node_ok() { [ "$(node_major)" -ge 20 ] 2>/dev/null; }
 
-say "checking Node.js"
-if [ "$(node_major)" -ge 20 ] 2>/dev/null; then
-  ok "node $(node -v) already installed"
-else
-  # Ubuntu ships Node 10 (20.04), 12 (22.04) and 18 (24.04): all too old,
-  # the panel needs >= 20. Install the official NodeSource build.
-  say "installing Node.js ${NODE_MAJOR}.x from NodeSource (distro version is too old)"
-  apt_ensure gnupg gpg || apt_ensure gnupg2 gpg || die "gnupg is required to add the NodeSource repository"
+# curl with sane timeouts; a second attempt forces IPv4, which is the usual
+# cure for "Failed to connect ... after N ms: Connection timed out" on hosts
+# with broken IPv6 routing.
+fetch() {
+  curl -fsSL --connect-timeout "$NET_TIMEOUT" --max-time "$NET_MAXTIME" --retry 2 --retry-delay 2 "$@" && return 0
+  warn "download failed, retrying over IPv4"
+  curl -4 -fsSL --connect-timeout "$NET_TIMEOUT" --max-time "$NET_MAXTIME" --retry 1 "$@"
+}
+
+install_node_nodesource() {
+  say "trying NodeSource (deb.nodesource.com)"
+  apt_ensure gnupg gpg || apt_ensure gnupg2 gpg || { warn "gnupg is not installed and apt cannot fetch it"; return 1; }
   install -d -m 0755 /usr/share/keyrings
-  curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
-    | gpg --dearmor -o /usr/share/keyrings/nodesource.gpg
+  if ! fetch -o /tmp/nodesource.key https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key; then
+    warn "cannot reach deb.nodesource.com"
+    return 1
+  fi
+  gpg --dearmor --batch --yes -o /usr/share/keyrings/nodesource.gpg /tmp/nodesource.key || return 1
+  rm -f /tmp/nodesource.key
   chmod 0644 /usr/share/keyrings/nodesource.gpg
   echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main" \
     > /etc/apt/sources.list.d/nodesource.list
-  apt-get update -qq
-  apt-get install -y -qq nodejs
-  APT_UPDATED=1
-  [ "$(node_major)" -ge 20 ] 2>/dev/null || die "Node.js installation failed"
+  if apt-get update -qq -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/nodesource.list \
+       -o Dir::Etc::sourceparts=/dev/null -o APT::Get::List-Cleanup=0 \
+     && apt-get install -y -qq nodejs; then
+    APT_UPDATED=1
+    node_ok && return 0
+  fi
+  # Never leave a dead repository behind: it would break every later apt call.
+  warn "NodeSource did not work, removing its apt source again"
+  rm -f /etc/apt/sources.list.d/nodesource.list
+  return 1
+}
+
+install_node_tarball() {
+  say "trying the official tarball ($NODE_MIRROR)"
+  apt_ensure xz-utils xz || true
+  local narch
+  case "$(dpkg --print-architecture)" in
+    amd64) narch=x64 ;;
+    arm64) narch=arm64 ;;
+    armhf) narch=armv7l ;;
+    ppc64el) narch=ppc64le ;;
+    s390x) narch=s390x ;;
+    *) warn "no official Node build for $(dpkg --print-architecture)"; return 1 ;;
+  esac
+
+  local base="$NODE_MIRROR/latest-v${NODE_MAJOR}.x" sums file
+  sums="$(fetch "$base/SHASUMS256.txt" || true)"
+  [ -n "$sums" ] || { warn "cannot reach $base"; return 1; }
+  file="$(echo "$sums" | awk -v pat="linux-$narch.tar.xz" '$2 ~ pat {print $2; exit}')"
+  [ -n "$file" ] || { warn "no linux-$narch build listed at $base"; return 1; }
+
+  local tmp; tmp="$(mktemp -d /tmp/node-dl.XXXXXX)"
+  say "downloading $file"
+  fetch -o "$tmp/$file" "$base/$file" || { rm -rf "$tmp"; warn "download failed"; return 1; }
+  # Verify against the checksum file we already have.
+  ( cd "$tmp" && echo "$sums" | grep " $file\$" | sha256sum -c - >/dev/null 2>&1 ) \
+    || { rm -rf "$tmp"; warn "checksum mismatch for $file"; return 1; }
+
+  rm -rf /opt/node && install -d -m 0755 /opt/node
+  tar -xJf "$tmp/$file" -C /opt/node --strip-components=1 || { rm -rf "$tmp"; return 1; }
+  rm -rf "$tmp"
+  for bin in node npm npx; do
+    [ -e "/opt/node/bin/$bin" ] && ln -sf "/opt/node/bin/$bin" "/usr/local/bin/$bin"
+  done
+  hash -r 2>/dev/null || true
+  node_ok
+}
+
+say "checking Node.js"
+if node_ok; then
+  ok "node $(node -v) already installed"
+elif [ "$NODE_FROM" = skip ]; then
+  warn "no usable Node.js and --node-from skip was given; the panel will not start"
+else
+  say "installing Node.js ${NODE_MAJOR}.x (the distribution's version is too old)"
+  INSTALLED=0
+  case "$NODE_FROM" in
+    nodesource) install_node_nodesource && INSTALLED=1 ;;
+    tarball)    install_node_tarball && INSTALLED=1 ;;
+    auto)       install_node_nodesource && INSTALLED=1 || { install_node_tarball && INSTALLED=1; } ;;
+    *) die "--node-from must be auto, nodesource, tarball or skip" ;;
+  esac
+  if [ "$INSTALLED" != 1 ]; then
+    cat >&2 <<EOF
+
+Could not install Node.js automatically. This host cannot reach
+deb.nodesource.com nor $NODE_MIRROR (firewall, proxy, DNS or IPv6 problem).
+
+Options:
+  * behind a proxy:   export https_proxy=http://proxy:3128 and run this again
+  * pick a mirror:    NODE_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/nodejs-release \
+                        sudo -E bash $0 --node-from tarball ...
+  * install Node 20+ by hand (apt/nvm/tarball), then re-run with --node-from skip
+  * build the .deb on another machine and copy it over:
+        bash panel/packaging/build-deb.sh      # on a machine with Node
+        sudo bash install-ubuntu.sh --deb csp-panel_*_all.deb --node-from skip
+
+EOF
+    die "Node.js is required to build and run the panel"
+  fi
   ok "node $(node -v)"
 fi
 
