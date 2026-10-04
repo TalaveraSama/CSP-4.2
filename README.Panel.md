@@ -37,7 +37,7 @@ or build the Debian package yourself:
 
 ```bash
 cd panel && bash packaging/build-deb.sh
-sudo apt install ./build/csp-panel_0.2.0_all.deb
+sudo apt install ./build/csp-panel_0.3.0_all.deb
 sudoedit /etc/csp-panel/panel.env && sudo systemctl start csp-panel
 ```
 

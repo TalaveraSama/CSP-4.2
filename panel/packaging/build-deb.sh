@@ -17,12 +17,24 @@ PANEL_DIR="$(pwd)"
 
 PKG=csp-panel
 VERSION="${VERSION:-$(node -p "require('./package.json').version")}"
+CHANGELOG=packaging/debian/changelog
 BUILD_DIR="$PANEL_DIR/build"
 STAGE="$BUILD_DIR/${PKG}_${VERSION}_all"
 LIB=/usr/lib/$PKG
 
 command -v dpkg-deb >/dev/null || { echo "ERROR: dpkg-deb not found (apt install dpkg-dev)"; exit 1; }
 command -v node     >/dev/null || { echo "ERROR: node not found (needs Node >= 20 to build)"; exit 1; }
+
+# The changelog is the release history users see with `apt changelog`; keep it
+# in sync with package.json so the two never drift apart.
+if [ -f "$CHANGELOG" ]; then
+  CHANGELOG_VERSION="$(sed -n '1s/^[^(]*(\([^)]*\)).*/\1/p' "$CHANGELOG")"
+  if [ "$CHANGELOG_VERSION" != "$VERSION" ]; then
+    echo "ERROR: $CHANGELOG top entry is $CHANGELOG_VERSION but the version is $VERSION."
+    echo "       Add a changelog entry (or pass VERSION=$CHANGELOG_VERSION)."
+    exit 1
+  fi
+fi
 
 echo "==> building $PKG $VERSION"
 npm install --no-audit --no-fund
@@ -88,9 +100,15 @@ install -m 644 packaging/debian/copyright                   "$STAGE/usr/share/do
 install -m 644 deploy/aapanel/nginx-subdomain.conf          "$STAGE/usr/share/doc/$PKG/examples/"
 install -m 644 deploy/aapanel/nginx-subdirectory.conf       "$STAGE/usr/share/doc/$PKG/examples/"
 install -m 644 .env.example                                 "$STAGE/usr/share/doc/$PKG/examples/panel.env.example"
+install -m 644 packaging/INSTALL.es.md                      "$STAGE/usr/share/doc/$PKG/INSTALL.es.md"
 
-printf '%s (%s) unstable; urgency=medium\n\n  * CSP/OSCam web panel %s.\n\n -- CSP Panel contributors <noreply@example.com>  %s\n' \
-  "$PKG" "$VERSION" "$VERSION" "$(date -R)" | gzip -9n > "$STAGE/usr/share/doc/$PKG/changelog.Debian.gz"
+if [ -f "$CHANGELOG" ]; then
+  gzip -9nc "$CHANGELOG" > "$STAGE/usr/share/doc/$PKG/changelog.Debian.gz"
+else
+  printf '%s (%s) unstable; urgency=medium\n\n  * CSP/OSCam/NCam web panel %s.\n\n -- CSP Panel contributors <noreply@example.com>  %s\n' \
+    "$PKG" "$VERSION" "$VERSION" "$(date -R)" | gzip -9n > "$STAGE/usr/share/doc/$PKG/changelog.Debian.gz"
+fi
+chmod 644 "$STAGE/usr/share/doc/$PKG/changelog.Debian.gz"
 
 # Control files: fill in version and installed size.
 SIZE=$(du -ks --exclude=DEBIAN "$STAGE" | cut -f1)

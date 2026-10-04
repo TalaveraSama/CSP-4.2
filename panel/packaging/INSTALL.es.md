@@ -72,6 +72,20 @@ curl -fsSL https://raw.githubusercontent.com/TalaveraSama/CSP-4.2/arena/01a0f2ba
 | `--force` | ejecutar en una distro no soportada (Debian) |
 | `--uninstall` / `--purge` | desinstalar (conservando / borrando la config) |
 
+## Actualizar
+
+Volver a ejecutar el instalador reinstala la versión nueva y **conserva
+`/etc/csp-panel/panel.env`** (es un conffile de dpkg); el servicio solo se
+reinicia si ya estaba en marcha:
+
+```bash
+cd CSP-4.2 && git pull
+sudo bash panel/packaging/install-ubuntu.sh --yes
+```
+
+El historial de cambios viaja en el paquete: `apt changelog csp-panel` o
+`zcat /usr/share/doc/csp-panel/changelog.Debian.gz`.
+
 ## Después de instalar
 
 ```bash

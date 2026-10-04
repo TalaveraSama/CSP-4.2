@@ -2,6 +2,7 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import { BackendError, type ProxyBackend } from './backend.js';
 import type { StatusCommand } from './csp/types.js';
 import { COOKIE_NAME, type PanelSession, type SessionStore } from './sessions.js';
+import { PANEL_VERSION } from './version.js';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -65,7 +66,7 @@ export function createApiRouter(backend: ProxyBackend, sessions: SessionStore, s
   /* --------------------------------------------------------------- meta */
 
   api.get('/meta', (_req, res) => {
-    res.json({ ...backend.info, panel: '0.2.0' });
+    res.json({ ...backend.info, panel: PANEL_VERSION });
   });
 
   /* --------------------------------------------------------------- auth */

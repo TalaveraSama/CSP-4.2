@@ -25,10 +25,14 @@ Spanish step-by-step guide: [`INSTALL.es.md`](INSTALL.es.md).
 
 ```bash
 cd panel
-bash packaging/build-deb.sh            # -> build/csp-panel_0.2.0_all.deb
-VERSION=0.2.1 bash packaging/build-deb.sh
+bash packaging/build-deb.sh            # -> build/csp-panel_0.3.0_all.deb
+VERSION=0.3.1 bash packaging/build-deb.sh   # needs a matching changelog entry
 BASE_PATH=/csp/ bash packaging/build-deb.sh   # panel served under /csp/
 ```
+
+Bumping the version means editing **both** `package.json` and
+`packaging/debian/changelog`: the build refuses to package a version that has
+no changelog entry, so `apt changelog csp-panel` always tells the truth.
 
 Build host needs `node >= 20`, `npm` and `dpkg-deb` (`apt install dpkg-dev`).
 No `fakeroot` required — the script uses `dpkg-deb --root-owner-group`.
@@ -36,7 +40,7 @@ No `fakeroot` required — the script uses `dpkg-deb --root-owner-group`.
 ## Install
 
 ```bash
-sudo apt install ./csp-panel_0.2.0_all.deb     # or: sudo dpkg -i …
+sudo apt install ./csp-panel_0.3.0_all.deb     # or: sudo dpkg -i …
 sudoedit /etc/csp-panel/panel.env              # BACKEND + OSCAM_URL/CSP_URL
 sudo systemctl start csp-panel
 curl http://127.0.0.1:8090/healthz
@@ -75,5 +79,6 @@ keeps the configuration.
 | `debian/control` | package metadata |
 | `debian/{postinst,prerm,postrm}` | user creation, systemd enable/stop, purge |
 | `debian/conffiles`, `debian/copyright` | dpkg bookkeeping |
+| `debian/changelog` | release history shipped as `changelog.Debian.gz`; its top entry must match the version being built (the build fails otherwise) |
 | `csp-panel.service` | systemd unit shipped by the package |
 | `panel.env` | default configuration installed to `/etc/csp-panel/` |

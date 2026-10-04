@@ -1,0 +1,22 @@
+csp-panel (0.3.0) unstable; urgency=medium
+
+  * Add the NCam backend (OSCam fork): /ncamapi.html endpoint, <ncam>
+    document root and ncam.* configuration files, selected with
+    BACKEND=ncam + NCAM_URL in /etc/csp-panel/panel.env.
+  * The panel version is now read from the installed package.json, so
+    /api/meta reports the real package version.
+  * install-ubuntu.sh: --backend ncam, and the sources are fetched
+    automatically when the script is run standalone.
+  * panel.env documents the NCam settings and remote softcams.
+
+ -- CSP Panel contributors <noreply@example.com>  Sat, 04 Oct 2025 12:00:00 +0000
+
+csp-panel (0.2.0) unstable; urgency=medium
+
+  * First Debian package of the modern CSP/OSCam panel: Node BFF plus
+    React SPA under /usr/lib/csp-panel, hardened systemd unit running as
+    the unprivileged csp-panel user, /etc/csp-panel/panel.env conffile.
+  * Runtime dependencies are vendored, so installing needs no network.
+  * One-shot installer for Ubuntu 20.04/22.04/24.04.
+
+ -- CSP Panel contributors <noreply@example.com>  Sat, 04 Oct 2025 10:00:00 +0000
