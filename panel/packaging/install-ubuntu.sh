@@ -42,9 +42,10 @@ csp-panel installer for Ubuntu 20.04 / 22.04 / 24.04
 
 Usage: sudo bash install-ubuntu.sh [options]
 
-  --backend oscam|csp|mock   which softcam to manage (mock = demo, no softcam)
+  --backend oscam|ncam|csp|mock
+                             which softcam to manage (mock = demo, no softcam)
   --url URL                  softcam web interface, e.g. http://127.0.0.1:8888
-                             (OSCam httpport, or CSP status-web port 8082)
+                             (OSCam/NCam httpport, or CSP status-web port 8082)
   --port N                   port the panel listens on            (default 8090)
   --listen ADDR              address the panel binds to      (default 127.0.0.1)
   --domain HOST              also configure an nginx vhost for HOST
@@ -281,18 +282,21 @@ say "configuring $CONF"
 if [ -z "$BACKEND" ]; then
   echo "  Which softcam should the panel manage?"
   echo "    oscam  OSCam web interface (/oscamapi.html)"
+  echo "    ncam   NCam, the OSCam fork (/ncamapi.html)"
   echo "    csp    CardServProxy status web (/xmlHandler)"
   echo "    mock   built-in demo data, no softcam needed"
   ask BACKEND "  backend" "oscam"
 fi
 case "$BACKEND" in
-  oscam|csp|mock) ;;
-  *) die "--backend must be oscam, csp or mock" ;;
+  oscam|ncam|csp|mock) ;;
+  *) die "--backend must be oscam, ncam, csp or mock" ;;
 esac
 
 if [ "$BACKEND" != mock ] && [ -z "$TARGET_URL" ]; then
   if [ "$BACKEND" = oscam ]; then
     ask TARGET_URL "  OSCam web interface URL" "http://127.0.0.1:8888"
+  elif [ "$BACKEND" = ncam ]; then
+    ask TARGET_URL "  NCam web interface URL" "http://127.0.0.1:8888"
   else
     ask TARGET_URL "  CardServProxy status web URL" "http://127.0.0.1:8082"
   fi
@@ -307,6 +311,10 @@ case "$BACKEND" in
   oscam)
     set_kv "$CONF" BACKEND oscam
     set_kv "$CONF" OSCAM_URL "$TARGET_URL"
+    set_kv "$CONF" MOCK 0 ;;
+  ncam)
+    set_kv "$CONF" BACKEND ncam
+    set_kv "$CONF" NCAM_URL "$TARGET_URL"
     set_kv "$CONF" MOCK 0 ;;
   csp)
     set_kv "$CONF" BACKEND csp
@@ -393,10 +401,11 @@ ${BOLD}csp-panel is installed.${OFF}
   remove     sudo bash $(basename "$0") --uninstall   ${DIM}(--purge to drop the config too)${OFF}
 
 EOF
-if [ "$BACKEND" = oscam ]; then
+if [ "$BACKEND" = oscam ] || [ "$BACKEND" = ncam ]; then
+  CONF_NAME=$([ "$BACKEND" = ncam ] && echo ncam.conf || echo oscam.conf)
   cat <<EOF
-  ${DIM}OSCam reminder: in oscam.conf [webif] set httpport, httpuser, httppwd and add
-  this machine's IP to httpallowed, otherwise the panel gets 403.${OFF}
+  ${DIM}Reminder: in $CONF_NAME [webif] set httpport, httpuser, httppwd and add this
+  machine's IP to httpallowed, otherwise the panel gets 403.${OFF}
 
 EOF
 fi

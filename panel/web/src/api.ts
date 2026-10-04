@@ -27,8 +27,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return payload as T;
 }
 
+export type BackendKind = 'csp' | 'oscam' | 'ncam';
+
+/** NCam is an OSCam fork: identical screens, only the product name changes. */
+export const isOscamLike = (kind: BackendKind | undefined): boolean => kind === 'oscam' || kind === 'ncam';
+
+export const backendName = (kind: BackendKind | undefined): string =>
+  kind === 'oscam' ? 'OSCam' : kind === 'ncam' ? 'NCam' : 'CardServProxy';
+
 export interface Meta {
-  kind: 'csp' | 'oscam';
+  kind: BackendKind;
   mock: boolean;
   target: string;
   panel: string;

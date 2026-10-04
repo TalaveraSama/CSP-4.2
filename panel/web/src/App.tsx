@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { api, type Meta } from './api';
+import { api, backendName, type Meta } from './api';
 import { AppContext } from './app-context';
 import { Login } from './components/Login';
 import { Spinner } from './components/ui';
@@ -137,7 +137,7 @@ export function App() {
           </nav>
           <div className="topright">
             {proxyName && <span className="proxyname">{proxyName}</span>}
-            <span className="badge badge-info">{meta?.kind === 'oscam' ? 'OSCam' : 'CSP'}</span>
+            <span className="badge badge-info">{meta?.kind === 'csp' ? 'CSP' : backendName(meta?.kind)}</span>
             {meta?.mock && <span className="badge badge-warn">mock data</span>}
             <select
               className="mini-select"

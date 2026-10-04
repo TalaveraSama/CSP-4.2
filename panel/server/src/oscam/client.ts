@@ -88,13 +88,64 @@ export const OSCAM_CONFIG_FILES = [
   'oscam.ratelimit',
 ];
 
-export function oscamInfo(target: string, mock: boolean): BackendInfo {
+/**
+ * NCam is an OSCam fork: same web API, same XML templates, same digest auth.
+ * Only the endpoint, the document root element and the config file names are
+ * renamed, so one flavour descriptor is enough to support it.
+ */
+export const NCAM_CONFIG_FILES = [
+  'ncam.conf',
+  'ncam.user',
+  'ncam.server',
+  'ncam.services',
+  'ncam.srvid',
+  'ncam.srvid2',
+  'ncam.provid',
+  'ncam.dvbapi',
+  'ncam.whitelist',
+  'ncam.ratelimit',
+  'ncam.tiers',
+];
+
+export interface OscamFlavour {
+  /** Backend id reported by /api/meta. */
+  kind: 'oscam' | 'ncam';
+  /** Human name used in messages and command labels. */
+  label: string;
+  /** API endpoint: /oscamapi.html or /ncamapi.html. */
+  apiPath: string;
+  /** Root element of every API document: <oscam> or <ncam>. */
+  rootTag: string;
+  configFiles: string[];
+  /** File opened by the config editor by default. */
+  defaultConfigFile: string;
+}
+
+export const OSCAM_FLAVOUR: OscamFlavour = {
+  kind: 'oscam',
+  label: 'OSCam',
+  apiPath: '/oscamapi.html',
+  rootTag: 'oscam',
+  configFiles: OSCAM_CONFIG_FILES,
+  defaultConfigFile: 'oscam.conf',
+};
+
+export const NCAM_FLAVOUR: OscamFlavour = {
+  kind: 'ncam',
+  label: 'NCam',
+  apiPath: '/ncamapi.html',
+  rootTag: 'ncam',
+  configFiles: NCAM_CONFIG_FILES,
+  defaultConfigFile: 'ncam.conf',
+};
+
+export function oscamInfo(target: string, mock: boolean, flavour: OscamFlavour = OSCAM_FLAVOUR): BackendInfo {
   return {
-    kind: 'oscam',
+    kind: flavour.kind,
     mock,
     target,
     configFormat: 'ini',
-    configFiles: OSCAM_CONFIG_FILES,
+    configFiles: flavour.configFiles,
     features: { profiles: true, cache: false, plugins: false, connectorServices: false, seen: true },
     labels: { connectors: 'Readers', connector: 'Reader', profiles: 'CAIDs' },
   };
@@ -146,19 +197,21 @@ export class OscamClient implements ProxyBackend {
   constructor(
     private readonly transport: OscamTransport,
     mock = false,
+    private readonly flavour: OscamFlavour = OSCAM_FLAVOUR,
   ) {
-    this.info = oscamInfo(transport.target, mock);
+    this.info = oscamInfo(transport.target, mock, flavour);
   }
 
   /* ------------------------------------------------------------- plumbing */
 
   private async api(auth: BackendAuth, query: Record<string, string | undefined>): Promise<Node> {
-    const xml = await this.transport.get(auth, '/oscamapi.html', query);
+    const xml = await this.transport.get(auth, this.flavour.apiPath, query);
     const doc = parser.parse(xml) as Node;
-    const root = doc.oscam ?? doc;
+    // Accept either root element: some forks answer <oscam> on /ncamapi.html.
+    const root = doc[this.flavour.rootTag] ?? doc.oscam ?? doc.ncam ?? doc;
     const error = arr(root?.error)[0];
-    if (error !== undefined) throw new BackendError(`OSCam: ${txt(error) || 'api error'}`, 400);
-    if (!root) throw new BackendError('OSCam returned an unexpected document', 502);
+    if (error !== undefined) throw new BackendError(`${this.flavour.label}: ${txt(error) || 'api error'}`, 400);
+    if (!root) throw new BackendError(`${this.flavour.label} returned an unexpected document`, 502);
     return root as Node;
   }
 
@@ -386,7 +439,7 @@ export class OscamClient implements ProxyBackend {
     const groups: CommandGroup[] = [
       {
         name: 'Readers',
-        handler: 'oscamapi',
+        handler: this.flavour.kind === 'ncam' ? 'ncamapi' : 'oscamapi',
         commands: [
           { name: 'retry-connector', label: 'Restart reader', description: 'Restart the reader thread (part=status&action=restart).', confirm: false, params: [readerParam] },
           { name: 'reset-connector', label: 'Reread cards', description: 'Force a card re-read (part=readerlist&action=reread).', confirm: false, params: [readerParam] },
@@ -397,22 +450,22 @@ export class OscamClient implements ProxyBackend {
       },
       {
         name: 'Users',
-        handler: 'oscamapi',
+        handler: this.flavour.kind === 'ncam' ? 'ncamapi' : 'oscamapi',
         commands: [
           { name: 'kick-user', label: 'Kick user', description: 'Kill every client thread of this user (part=status&action=kill).', confirm: true, params: [userParam] },
           { name: 'enable-user', label: 'Enable user', description: 'Re-enable a disabled account.', confirm: false, params: [userParam] },
-          { name: 'disable-user', label: 'Disable user', description: 'Disable the account in oscam.user.', confirm: true, params: [userParam] },
+          { name: 'disable-user', label: 'Disable user', description: `Disable the account in ${this.flavour.kind}.user.`, confirm: true, params: [userParam] },
           { name: 'reset-user-stats', label: 'Reset user stats', description: 'Reset the ECM/EMM counters of one user.', confirm: false, params: [userParam] },
         ],
       },
       {
         name: 'Server',
-        handler: 'oscamapi',
+        handler: this.flavour.kind === 'ncam' ? 'ncamapi' : 'oscamapi',
         commands: [
           { name: 'reset-server-stats', label: 'Reset server stats', description: 'Reset the global counters.', confirm: true, params: [] },
-          { name: 'reload-readers', label: 'Reload readers', description: 'Re-read oscam.server and restart the readers.', confirm: true, params: [] },
-          { name: 'restart', label: 'Restart OSCam', description: 'Restart the OSCam process.', confirm: true, params: [] },
-          { name: 'shutdown', label: 'Shutdown OSCam', description: 'Stop the OSCam process.', confirm: true, params: [] },
+          { name: 'reload-readers', label: 'Reload readers', description: `Re-read ${this.flavour.kind}.server and restart the readers.`, confirm: true, params: [] },
+          { name: 'restart', label: `Restart ${this.flavour.label}`, description: `Restart the ${this.flavour.label} process.`, confirm: true, params: [] },
+          { name: 'shutdown', label: `Shutdown ${this.flavour.label}`, description: `Stop the ${this.flavour.label} process.`, confirm: true, params: [] },
         ],
       },
     ];
@@ -523,7 +576,7 @@ export class OscamClient implements ProxyBackend {
   }
 
   raw(auth: BackendAuth, command: string, params: Record<string, string>): Promise<string> {
-    return this.transport.get(auth, '/oscamapi.html', { part: command, ...params });
+    return this.transport.get(auth, this.flavour.apiPath, { part: command, ...params });
   }
 
   /* ------------------------------------------------------------- mutating */
@@ -552,7 +605,7 @@ export class OscamClient implements ProxyBackend {
         await this.api(auth, { part: 'readerlist', action: 'reloadreaders' });
         return ok('Readers reloaded');
       case 'kick-user': {
-        // OSCam kills client *threads*, so resolve the thread ids of the user first.
+        // OSCam/NCam kill client *threads*, so resolve the thread ids of the user first.
         const clients = this.parseClients(await this.api(auth, { part: 'status' }));
         const targets = clients.filter((c) => (c.type === 'c' || c.type === 'm') && c.name === label && c.thid);
         if (targets.length === 0) return { ok: false, message: `No active session for '${label}'` };
@@ -575,17 +628,17 @@ export class OscamClient implements ProxyBackend {
         return ok('Server statistics reset');
       case 'restart':
         await this.api(auth, { part: 'shutdown', action: 'restart' });
-        return ok('OSCam restart requested');
+        return ok(`${this.flavour.label} restart requested`);
       case 'shutdown':
         await this.api(auth, { part: 'shutdown', action: 'shutdown' });
-        return ok('OSCam shutdown requested');
+        return ok(`${this.flavour.label} shutdown requested`);
       default:
-        return { ok: false, message: `Command '${command}' is not supported by the OSCam backend` };
+        return { ok: false, message: `Command '${command}' is not supported by the ${this.flavour.label} backend` };
     }
   }
 
-  async fetchConfig(auth: BackendAuth, file = 'oscam.conf'): Promise<ConfigFile> {
-    if (!OSCAM_CONFIG_FILES.includes(file)) throw new BackendError(`Unknown config file '${file}'`, 400);
+  async fetchConfig(auth: BackendAuth, file = this.flavour.defaultConfigFile): Promise<ConfigFile> {
+    if (!this.flavour.configFiles.includes(file)) throw new BackendError(`Unknown config file '${file}'`, 400);
     const root = await this.api(auth, { part: 'files', file });
     const node = arr(root.file)[0];
     return {
@@ -595,17 +648,18 @@ export class OscamClient implements ProxyBackend {
     };
   }
 
-  async saveConfig(auth: BackendAuth, content: string, file = 'oscam.conf') {
-    if (!OSCAM_CONFIG_FILES.includes(file)) return { ok: false, message: `Unknown config file '${file}'` };
-    const xml = await this.transport.post(auth, '/oscamapi.html', {
+  async saveConfig(auth: BackendAuth, content: string, file = this.flavour.defaultConfigFile) {
+    if (!this.flavour.configFiles.includes(file)) return { ok: false, message: `Unknown config file '${file}'` };
+    const xml = await this.transport.post(auth, this.flavour.apiPath, {
       part: 'files',
       file,
       action: 'Save',
       filecontent: content,
     });
-    const root = (parser.parse(xml) as Node).oscam ?? {};
+    const doc = parser.parse(xml) as Node;
+    const root = doc[this.flavour.rootTag] ?? doc.oscam ?? doc.ncam ?? {};
     const error = arr(root.error)[0];
-    if (error !== undefined) return { ok: false, message: `OSCam: ${txt(error)}` };
-    return { ok: true, message: `${file} saved (OSCam may need a restart to apply some settings)` };
+    if (error !== undefined) return { ok: false, message: `${this.flavour.label}: ${txt(error)}` };
+    return { ok: true, message: `${file} saved (${this.flavour.label} may need a restart to apply some settings)` };
   }
 }

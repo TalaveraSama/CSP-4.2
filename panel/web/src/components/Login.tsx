@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { api, type Meta } from '../api';
+import { api, backendName, type Meta } from '../api';
 import type { CspIdentity } from '../types';
 
 export function Login({ meta, onLogin }: { meta: Meta | undefined; onLogin: (identity: CspIdentity) => void }) {
@@ -30,7 +30,7 @@ export function Login({ meta, onLogin }: { meta: Meta | undefined; onLogin: (ide
         <p className="login-sub">
           {meta ? (
             <>
-              {meta.kind === 'oscam' ? 'OSCam' : 'CardServProxy'}
+              {backendName(meta.kind)}
               {meta.mock ? ' (mock)' : ''} · <code>{meta.target}</code>
             </>
           ) : (

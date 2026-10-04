@@ -1,5 +1,5 @@
 import { Fragment, useCallback } from 'react';
-import { api } from '../api';
+import { api, isOscamLike } from '../api';
 import { useApp } from '../app-context';
 import { usePolling } from '../hooks';
 import { Badge, Bar, Card, Empty, ErrorBox, Stat } from '../components/ui';
@@ -98,7 +98,7 @@ export function Overview() {
 
       <Card title={`${meta.labels.profiles} (${data.profiles.length})`}>
         {data.profiles.length === 0 ? (
-          <Empty>{meta.kind === 'oscam' ? 'No CAID seen yet (no client request so far)' : 'No data'}</Empty>
+          <Empty>{isOscamLike(meta.kind) ? 'No CAID seen yet (no client request so far)' : 'No data'}</Empty>
         ) : (
           <table className="table">
             <thead>
@@ -106,7 +106,7 @@ export function Overview() {
                 <th>{meta.features.profiles && meta.kind === 'csp' ? 'Profile' : 'CAID'}</th>
                 <th>CA id</th>
                 <th>Network</th>
-                <th>{meta.kind === 'oscam' ? 'Protocols in use' : 'Listen ports'}</th>
+                <th>{isOscamLike(meta.kind) ? 'Protocols in use' : 'Listen ports'}</th>
                 <th className="r">Capacity</th>
                 <th className="r">Mapped services</th>
                 <th>Debug</th>

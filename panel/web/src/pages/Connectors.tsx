@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useState } from 'react';
-import { api } from '../api';
+import { api, isOscamLike } from '../api';
 import { useApp } from '../app-context';
 import { usePolling } from '../hooks';
 import { Badge, Bar, Card, Empty, ErrorBox } from '../components/ui';
@@ -98,7 +98,7 @@ export function Connectors() {
                             Retry
                           </button>
                           <button className="mini" disabled={busy !== null} onClick={() => run('reset-connector', c.name)}>
-                            {meta.kind === 'oscam' ? 'Reread' : 'Reset map'}
+                            {isOscamLike(meta.kind) ? 'Reread' : 'Reset map'}
                           </button>
                           <button className="mini danger" disabled={busy !== null} onClick={() => run('disable-connector', c.name)}>
                             Disable
@@ -150,7 +150,7 @@ export function Connectors() {
                             </div>
                             )}
                             <div>
-                              <h4>{meta.kind === 'oscam' ? 'Reader details' : 'Remote properties'}</h4>
+                              <h4>{isOscamLike(meta.kind) ? 'Reader details' : 'Remote properties'}</h4>
                               <dl className="kv compact">
                                 {c.remoteParams.map((rp) => (
                                   <Fragment key={rp.name}>

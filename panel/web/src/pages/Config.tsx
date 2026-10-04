@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api } from '../api';
+import { api, backendName, isOscamLike } from '../api';
 import { useApp } from '../app-context';
 import { Badge, Card, Empty, ErrorBox } from '../components/ui';
 
@@ -70,7 +70,7 @@ export function Config() {
 
   const save = async () => {
     if (problem) return;
-    if (!confirm(`Deploy ${file} to ${meta.kind === 'oscam' ? 'OSCam' : 'the proxy'}?`)) return;
+    if (!confirm(`Deploy ${file} to ${isOscamLike(meta.kind) ? backendName(meta.kind) : 'the proxy'}?`)) return;
     setBusy(true);
     try {
       const res = await api.saveConfig(text, file);
@@ -122,7 +122,7 @@ export function Config() {
       {problem && <div className="errorbox small">{problem}</div>}
       <textarea className="codearea" spellCheck={false} value={text} onChange={(e) => setText(e.target.value)} rows={32} />
       <p className="muted small">
-        {meta.kind === 'oscam' ? (
+        {isOscamLike(meta.kind) ? (
           <>
             Written through the OSCam web API (<code>part=files&amp;action=Save</code>). Most settings apply live; ports,
             protocols and reader definitions need <em>Restart OSCam</em> from the Admin page.

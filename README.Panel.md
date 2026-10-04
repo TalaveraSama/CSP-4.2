@@ -5,11 +5,12 @@ client-side XSLT + `bowweb.js` application from 2009 that only runs inside the
 proxy's servlet container.
 
 A modern, **Java-free** replacement lives in [`panel/`](panel/), which also
-speaks **OSCam**:
+speaks **OSCam** and its **NCam** fork:
 
-- Node/TypeScript BFF with two interchangeable backends — CardServProxy
-  (`/xmlHandler`) and OSCam (`/oscamapi.html`, HTTP Digest auth) — both
-  normalised to the same clean JSON API (`/api/...`),
+- Node/TypeScript BFF with three interchangeable backends — CardServProxy
+  (`/xmlHandler`), OSCam (`/oscamapi.html`, HTTP Digest auth) and NCam
+  (`/ncamapi.html`, `ncam.*` config files) — all normalised to the same clean
+  JSON API (`/api/...`); the softcam can be local or on another host,
 - React + Vite single-page frontend (dark theme, sortable tables, auto-refresh,
   admin command forms, `proxy.xml` editor),
 - built-in mock nodes for both backends, so the panel can be run and demoed with
@@ -18,8 +19,10 @@ speaks **OSCam**:
 ```bash
 cd panel && npm install && npm run dev                 # demo, CSP mock data
 cd panel && BACKEND=oscam MOCK=1 npm run dev           # demo, OSCam mock data
+cd panel && BACKEND=ncam MOCK=1 npm run dev            # demo, NCam mock data
 cd panel && CSP_URL=https://proxy-host:8082 npm run dev
 cd panel && BACKEND=oscam OSCAM_URL=http://box:8888 npm run dev
+cd panel && BACKEND=ncam NCAM_URL=http://box:8888 npm run dev
 ```
 
 On Ubuntu 20.04 / 22.04 / 24.04 one command installs it as a system service —

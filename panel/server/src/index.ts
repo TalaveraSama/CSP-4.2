@@ -6,13 +6,14 @@ import { config } from './config.js';
 import type { ProxyBackend } from './backend.js';
 import { HttpCspClient } from './csp/client.js';
 import { MockCspClient } from './csp/mock.js';
-import { OscamClient } from './oscam/client.js';
+import { NCAM_FLAVOUR, OSCAM_FLAVOUR, OscamClient } from './oscam/client.js';
 import { HttpOscamTransport } from './oscam/http.js';
 import { MockOscamTransport } from './oscam/mock.js';
 import { createApiRouter } from './routes.js';
 import { SessionStore } from './sessions.js';
 
-const targetUrl = config.backend === 'oscam' ? config.oscamUrl : config.cspUrl;
+const targetUrl =
+  config.backend === 'oscam' ? config.oscamUrl : config.backend === 'ncam' ? config.ncamUrl : config.cspUrl;
 
 if (config.insecureTls && targetUrl.startsWith('https:')) {
   // CSP nodes (gen-keystore) and OSCam (https_auto_create_cert) both use self-signed certs.
@@ -20,8 +21,12 @@ if (config.insecureTls && targetUrl.startsWith('https:')) {
 }
 
 function createBackend(): ProxyBackend {
-  if (config.backend === 'oscam') {
-    return config.mock ? new OscamClient(new MockOscamTransport(), true) : new OscamClient(new HttpOscamTransport(config.oscamUrl));
+  // NCam is an OSCam fork: same client, different endpoint/root tag/file names.
+  if (config.backend === 'oscam' || config.backend === 'ncam') {
+    const flavour = config.backend === 'ncam' ? NCAM_FLAVOUR : OSCAM_FLAVOUR;
+    return config.mock
+      ? new OscamClient(new MockOscamTransport(flavour), true, flavour)
+      : new OscamClient(new HttpOscamTransport(targetUrl), false, flavour);
   }
   return config.mock ? new MockCspClient() : new HttpCspClient(config.cspUrl);
 }

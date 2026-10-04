@@ -1,18 +1,24 @@
-# CSP Panel — modern, Java-free web panel for CardServProxy **and OSCam**
+# CSP Panel — modern, Java-free web panel for CardServProxy, **OSCam and NCam**
 
 A ground-up replacement for the legacy `cs-status.war` interface. The panel is a
 TypeScript stack (Node BFF + React SPA); **nothing in this folder needs a JVM,
 Ant, a `.war` container, browser XSLT, or the 2009-era `bowweb.js` framework.**
 
-One UI, two backends — the BFF normalises both dialects into the same model:
+One UI, three backends — the BFF normalises every dialect into the same model:
 
-| `BACKEND` | Talks to | Endpoint | Auth |
-| --- | --- | --- | --- |
-| `csp` (default) | CardServProxy 4.2 | `/xmlHandler`, `/cfgHandler` | HTTP basic / xml session |
-| `oscam` | OSCam web interface | `/oscamapi.html?part=...` | **HTTP Digest** (MD5), basic fallback |
+| `BACKEND` | Talks to | Endpoint | Auth | Config files |
+| --- | --- | --- | --- | --- |
+| `csp` (default) | CardServProxy 4.2 | `/xmlHandler`, `/cfgHandler` | HTTP basic / xml session | `proxy.xml` |
+| `oscam` | OSCam web interface | `/oscamapi.html?part=...` | **HTTP Digest** (MD5), basic fallback | `oscam.conf`, `oscam.user`, … |
+| `ncam` | NCam (OSCam fork) | `/ncamapi.html?part=...` | **HTTP Digest** (MD5), basic fallback | `ncam.conf`, `ncam.user`, … |
 
-Either one can run against a built-in synthetic node (`MOCK=1`), so the whole
-panel is demoable with no CSP, no OSCam and no JVM anywhere.
+NCam keeps OSCam's XML templates verbatim and only renames the endpoint, the
+document root (`<ncam>`) and the config files, so it reuses the OSCam client
+through a small "flavour" descriptor — every screen, command and the editor
+work the same.
+
+Any of them can run against a built-in synthetic node (`MOCK=1`), so the whole
+panel is demoable with no CSP, no OSCam/NCam and no JVM anywhere.
 
 ---
 
@@ -25,10 +31,12 @@ npm install
 # 1) demo / development with synthetic data — nothing else required
 npm run dev                                   # CSP mock,   API :8090, UI :5173
 BACKEND=oscam MOCK=1 npm run dev              # OSCam mock
+BACKEND=ncam MOCK=1 npm run dev               # NCam mock
 
 # 2) against a real server
 CSP_URL=https://proxy-host:8082 npm run dev                  # CardServProxy
 BACKEND=oscam OSCAM_URL=http://192.168.1.10:8888 npm run dev # OSCam
+BACKEND=ncam  NCAM_URL=http://192.168.1.10:8888 npm run dev  # NCam
 
 # 3) production: one process serving API + SPA
 npm run build
@@ -37,7 +45,9 @@ OSCAM_URL=http://192.168.1.10:8888 BACKEND=oscam npm start   # http://0.0.0.0:80
 
 In mock mode log in with **any** user/password; `admin` gets admin rights.
 Against a real node use the credentials of the proxy's user manager (CSP) or
-`httpuser`/`httppwd` from `[webif]` in `oscam.conf` (OSCam).
+`httpuser`/`httppwd` from `[webif]` in `oscam.conf` / `ncam.conf`
+(OSCam/NCam). The softcam may live on another machine: just point the URL at
+it and add the panel's IP to `httpallowed`.
 
 Configuration is env-driven, see [`.env.example`](.env.example).
 
@@ -47,7 +57,7 @@ Docker: `docker build -t csp-panel panel && docker run -p 8090:8090 -e BACKEND=o
 
 | Target | How |
 | --- | --- |
-| **Ubuntu 20.04/22.04/24.04** | one command: `sudo bash packaging/install-ubuntu.sh` — installs Node if needed, builds and installs the `.deb`, writes `/etc/csp-panel/panel.env`, starts systemd and can configure nginx ([guide in Spanish](packaging/INSTALL.es.md)) |
+| **Ubuntu 20.04/22.04/24.04** | one command: `sudo bash packaging/install-ubuntu.sh --backend oscam\|ncam\|csp` — installs Node if needed, builds and installs the `.deb`, writes `/etc/csp-panel/panel.env`, starts systemd and can configure nginx ([guide in Spanish](packaging/INSTALL.es.md)) |
 | Debian/Ubuntu `.deb` | `bash packaging/build-deb.sh` → `build/csp-panel_<ver>_all.deb`; installs to `/usr/lib/csp-panel` with a `csp-panel.service` unit, `/etc/csp-panel/panel.env` and an unprivileged `csp-panel` user — see [`packaging/README.md`](packaging/README.md) |
 | **aaPanel** | Node project (PM2) + nginx reverse proxy — step by step in [`deploy/aapanel/README.md`](deploy/aapanel/README.md), with `install.sh`, `ecosystem.config.cjs` and ready nginx snippets |
 | systemd (from source) | [`deploy/csp-panel.service`](deploy/csp-panel.service) |

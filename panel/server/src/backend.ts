@@ -27,7 +27,7 @@ export interface ConfigFile {
 
 export interface BackendInfo {
   /** Which server software we are talking to. */
-  kind: 'csp' | 'oscam';
+  kind: 'csp' | 'oscam' | 'ncam';
   /** True when the data is synthetic (no real server involved). */
   mock: boolean;
   /** Human readable target, shown in the UI. */

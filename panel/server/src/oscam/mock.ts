@@ -1,6 +1,6 @@
 import type { BackendAuth } from '../backend.js';
 import type { OscamTransport } from './http.js';
-import { OSCAM_CONFIG_FILES } from './client.js';
+import { OSCAM_FLAVOUR, type OscamFlavour } from './client.js';
 
 /**
  * Synthetic OSCam node.
@@ -81,13 +81,18 @@ const LOG_LINES = [
 ];
 
 export class MockOscamTransport implements OscamTransport {
-  readonly target = 'mock://oscam';
+  readonly target: string;
+  private readonly tag: string;
+  private readonly defaultFile: string;
   private files = new Map<string, string>();
   private disabledReaders = new Set<string>(['peer-granada']);
   private disabledUsers = new Set<string>(['viejo']);
   private killed = new Set<string>();
 
-  constructor() {
+  constructor(private readonly flavour: OscamFlavour = OSCAM_FLAVOUR) {
+    this.target = `mock://${flavour.kind}`;
+    this.tag = flavour.rootTag;
+    this.defaultFile = flavour.defaultConfigFile;
     this.files.set(
       'oscam.conf',
       `[global]
@@ -159,12 +164,20 @@ password                      = secret
 group                         = 2
 `,
     );
-    for (const f of OSCAM_CONFIG_FILES) if (!this.files.has(f)) this.files.set(f, `# ${f} (empty)\n`);
+    // NCam renames every oscam.* file to ncam.*: rewrite the seeded fixtures.
+    if (this.flavour.kind !== 'oscam') {
+      const renamed = new Map<string, string>();
+      for (const [name, content] of this.files) {
+        renamed.set(name.replace(/^oscam\./, `${this.flavour.kind}.`), content.replace(/oscam/g, this.flavour.kind));
+      }
+      this.files = renamed;
+    }
+    for (const f of this.flavour.configFiles) if (!this.files.has(f)) this.files.set(f, `# ${f} (empty)\n`);
   }
 
   private header(): string {
     const uptime = Math.floor((Date.now() - START) / 1000);
-    return `<?xml version="1.0" encoding="UTF-8"?>\n<oscam version="1.20_svn" revision="11719" starttime="${stamp(
+    return `<?xml version="1.0" encoding="UTF-8"?>\n<${this.tag} version="1.20_svn" revision="11719" starttime="${stamp(
       new Date(START),
     )}" uptime="${uptime}" readonly="0">`;
   }
@@ -197,7 +210,7 @@ group                         = 2
         ).join('\n')}\n\t]]></log>`
       : '';
 
-    return `${this.header()}\n\t<status>\n${bits}\n\t</status>${log}\n</oscam>`;
+    return `${this.header()}\n\t<status>\n${bits}\n\t</status>${log}\n</${this.tag}>`;
   }
 
   private userStatsXml(): string {
@@ -240,7 +253,7 @@ ${rows}
         <userconnected>5</userconnected>
         <useronline>4</useronline>
     </totals>
-</oscam>`;
+</${this.tag}>`;
   }
 
   private failbanXml(): string {
@@ -256,7 +269,7 @@ ${rows}
           )}" secondsleft="${600 - i * 120}">${e.ip}</ip>`,
       )
       .join('\n');
-    return `${this.header()}\n\t<failban>\n${rows}\n\t</failban>\n</oscam>`;
+    return `${this.header()}\n\t<failban>\n${rows}\n\t</failban>\n</${this.tag}>`;
   }
 
   private readerListXml(): string {
@@ -268,16 +281,16 @@ ${rows}
           }"></reader>`,
       )
       .join('\n');
-    return `${this.header()}\n\t<readers>\n${rows}\n\t</readers>\n</oscam>`;
+    return `${this.header()}\n\t<readers>\n${rows}\n\t</readers>\n</${this.tag}>`;
   }
 
   private fileXml(name: string): string {
     const content = this.files.get(name) ?? '';
-    return `${this.header()}\n\t<file filename="${esc(name)}" writable="1">\n\t<![CDATA[${content}]]>\n\t</file>\n</oscam>`;
+    return `${this.header()}\n\t<file filename="${esc(name)}" writable="1">\n\t<![CDATA[${content}]]>\n\t</file>\n</${this.tag}>`;
   }
 
   private error(message: string): string {
-    return `${this.header()}\n\t\t<error>${esc(message)}</error>\n</oscam>`;
+    return `${this.header()}\n\t\t<error>${esc(message)}</error>\n</${this.tag}>`;
   }
 
   private handle(query: Record<string, string | undefined>): string {
@@ -301,12 +314,12 @@ ${rows}
     }
     if (part === 'failban') return this.failbanXml();
     if (part === 'files') {
-      const file = query.file ?? 'oscam.conf';
+      const file = query.file ?? this.defaultFile;
       if (!this.files.has(file)) return this.error(`file ${file} not found`);
       if (action === 'save' && query.filecontent !== undefined) this.files.set(file, query.filecontent);
       return this.fileXml(file);
     }
-    if (part === 'shutdown') return `${this.header()}\n\t<confirmation>${action} ignored in mock mode</confirmation>\n</oscam>`;
+    if (part === 'shutdown') return `${this.header()}\n\t<confirmation>${action} ignored in mock mode</confirmation>\n</${this.tag}>`;
     return this.error('part not found');
   }
 

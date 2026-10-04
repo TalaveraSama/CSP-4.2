@@ -25,7 +25,7 @@ function int(value: string | undefined, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
-export type BackendKind = 'csp' | 'oscam';
+export type BackendKind = 'csp' | 'oscam' | 'ncam';
 
 export interface AppConfig {
   /** Port the BFF listens on. */
@@ -38,6 +38,8 @@ export interface AppConfig {
   cspUrl: string;
   /** Base url of the OSCam web interface, e.g. http://10.0.0.5:8888 */
   oscamUrl: string;
+  /** Base url of the NCam web interface (OSCam fork, /ncamapi.html). */
+  ncamUrl: string;
   /** Use the built-in fake node for the selected backend (no real server needed). */
   mock: boolean;
   /** Accept self-signed certificates when the target is https. */
@@ -55,13 +57,23 @@ export interface AppConfig {
 export function loadConfig(): AppConfig {
   const cspUrl = (process.env.CSP_URL ?? 'http://127.0.0.1:8082').replace(/\/+$/, '');
   const oscamUrl = (process.env.OSCAM_URL ?? 'http://127.0.0.1:8888').replace(/\/+$/, '');
+  const ncamUrl = (process.env.NCAM_URL ?? 'http://127.0.0.1:8888').replace(/\/+$/, '');
 
   // BACKEND wins; otherwise whichever url was configured; CSP by default.
   const explicit = (process.env.BACKEND ?? '').trim().toLowerCase();
-  const backend: BackendKind = explicit === 'oscam' ? 'oscam' : explicit === 'csp' ? 'csp' : process.env.OSCAM_URL ? 'oscam' : 'csp';
+  const backend: BackendKind =
+    explicit === 'oscam' || explicit === 'ncam' || explicit === 'csp'
+      ? (explicit as BackendKind)
+      : process.env.NCAM_URL
+        ? 'ncam'
+        : process.env.OSCAM_URL
+          ? 'oscam'
+          : 'csp';
 
-  const mockEnv = process.env.MOCK ?? (backend === 'oscam' ? process.env.OSCAM_MOCK : process.env.CSP_MOCK);
-  const configuredUrl = backend === 'oscam' ? process.env.OSCAM_URL : process.env.CSP_URL;
+  const urlByBackend = { csp: process.env.CSP_URL, oscam: process.env.OSCAM_URL, ncam: process.env.NCAM_URL } as const;
+  const mockByBackend = { csp: process.env.CSP_MOCK, oscam: process.env.OSCAM_MOCK, ncam: process.env.NCAM_MOCK } as const;
+  const mockEnv = process.env.MOCK ?? mockByBackend[backend];
+  const configuredUrl = urlByBackend[backend];
 
   return {
     port: int(process.env.PORT, 8090),
@@ -69,6 +81,7 @@ export function loadConfig(): AppConfig {
     backend,
     cspUrl,
     oscamUrl,
+    ncamUrl,
     mock: bool(mockEnv, !configuredUrl),
     insecureTls: bool(process.env.CSP_INSECURE_TLS ?? process.env.INSECURE_TLS, true),
     sessionTtlMs: int(process.env.SESSION_TTL_MS, 8 * 60 * 60 * 1000),

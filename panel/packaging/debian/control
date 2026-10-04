@@ -9,12 +9,13 @@ Suggests: oscam
 Installed-Size: @SIZE@
 Maintainer: CSP Panel contributors <noreply@example.com>
 Homepage: https://github.com/TalaveraSama/CSP-4.2
-Description: Modern web panel for CardServProxy and OSCam
+Description: Modern web panel for CardServProxy, OSCam and NCam
  A Java-free replacement for the legacy CardServProxy status web
- (cs-status.war), which also speaks the OSCam web API.
+ (cs-status.war), which also speaks the OSCam web API and its NCam fork.
  .
  It ships a small Node service that talks to the softcam over its XML API
- (CSP /xmlHandler or OSCam /oscamapi.html, including HTTP digest auth),
+ (CSP /xmlHandler, OSCam /oscamapi.html or NCam /ncamapi.html, including HTTP
+ digest auth), local or on another host,
  normalises both dialects into one JSON API, and serves a React single page
  application with overview, readers/connectors, sessions, channels, events,
  logs, admin commands and a configuration editor.

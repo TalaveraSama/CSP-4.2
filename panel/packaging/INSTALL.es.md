@@ -18,6 +18,10 @@ sudo bash panel/packaging/install-ubuntu.sh \
      --backend oscam --url http://127.0.0.1:8888 \
      --domain panel.midominio.com --yes
 
+# NCam (fork de OSCam) — local o en otra máquina
+sudo bash panel/packaging/install-ubuntu.sh \
+     --backend ncam --url http://192.168.1.10:8888 --yes
+
 # CardServProxy
 sudo bash panel/packaging/install-ubuntu.sh \
      --backend csp --url http://127.0.0.1:8082 --yes
@@ -56,8 +60,8 @@ curl -fsSL https://raw.githubusercontent.com/TalaveraSama/CSP-4.2/arena/01a0f2ba
 
 | Opción | Para qué |
 | --- | --- |
-| `--backend oscam\|csp\|mock` | qué softcam gestiona el panel |
-| `--url URL` | interfaz web del softcam (OSCam `httpport`, CSP status-web) |
+| `--backend oscam\|ncam\|csp\|mock` | qué softcam gestiona el panel (`ncam` = fork de OSCam) |
+| `--url URL` | interfaz web del softcam, local o remota (OSCam/NCam `httpport`, CSP status-web) |
 | `--port N` / `--listen ADDR` | dónde escucha el panel (por defecto `127.0.0.1:8090`) |
 | `--domain HOST` | además configura un vhost de nginx para ese dominio |
 | `--base-path /csp/` | servir el panel en un subdirectorio en vez de un dominio |
@@ -77,6 +81,14 @@ sudoedit /etc/csp-panel/panel.env    # configuración (luego: systemctl restart 
 curl http://127.0.0.1:8090/healthz   # comprobación rápida
 ```
 
+### Softcam local o remoto
+
+Da igual dónde esté: `--url http://127.0.0.1:8888` para la misma máquina,
+`--url http://192.168.1.10:8888` (o un host público/VPN) para otra. En el lado
+remoto hay que añadir la IP del panel a `httpallowed` y dejar el puerto del
+webif accesible; si va por internet, usa TLS en el softcam (`httpport=+8443`,
+con `INSECURE_TLS=1` si el certificado es autofirmado) o un túnel/VPN.
+
 Entra con las credenciales de la interfaz web de tu softcam: nunca se guardan
 en el navegador, el panel las mantiene en una sesión de servidor detrás de una
 cookie `httpOnly`.
@@ -92,7 +104,8 @@ sudo certbot --nginx -d panel.midominio.com
 
 | Síntoma | Causa / solución |
 | --- | --- |
-| El panel arranca pero el login da 403 | en `oscam.conf` `[webif]` falta la IP del panel en `httpallowed`, o `httpuser`/`httppwd` no coinciden |
+| El panel arranca pero el login da 403 | en `oscam.conf`/`ncam.conf` `[webif]` falta la IP del panel en `httpallowed`, o `httpuser`/`httppwd` no coinciden |
+| Instalé NCam y el panel da 404 | NCam usa `/ncamapi.html`: asegúrate de `BACKEND=ncam` (no `oscam`) en `panel.env` |
 | `no node interpreter found` | Node instalado con nvm (solo visible para tu usuario): pon `NODE_BIN=/ruta/a/node` en `/etc/csp-panel/panel.env` |
 | `502 Bad Gateway` en nginx | el servicio no está arrancado o `PORT`/`HOST` de `panel.env` no coinciden con el `proxy_pass` del vhost |
 | Certificado autofirmado del softcam | `INSECURE_TLS=1` en `panel.env` (ya viene activado) |
