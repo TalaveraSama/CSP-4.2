@@ -1,7 +1,7 @@
 # Debian package (`csp-panel`)
 
 Builds a single architecture-independent `.deb` that installs the panel as a
-systemd service. All runtime dependencies are pure JavaScript and are vendored
+systemd service (backends: CardServProxy, OSCam and NCam, local or remote). All runtime dependencies are pure JavaScript and are vendored
 into the package, so **installing needs no network and no `npm`** — only a
 Node.js runtime.
 
@@ -14,6 +14,8 @@ For Ubuntu 20.04 / 22.04 / 24.04 there is an installer that does everything
 sudo bash packaging/install-ubuntu.sh                       # guided
 sudo bash packaging/install-ubuntu.sh --backend oscam \
      --url http://127.0.0.1:8888 --domain panel.example.com --yes
+sudo bash packaging/install-ubuntu.sh --backend ncam \
+     --url http://192.168.1.10:8888 --yes     # NCam, here on another host
 sudo bash packaging/install-ubuntu.sh --uninstall           # or --purge
 ```
 
