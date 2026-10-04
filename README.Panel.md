@@ -22,7 +22,15 @@ cd panel && CSP_URL=https://proxy-host:8082 npm run dev
 cd panel && BACKEND=oscam OSCAM_URL=http://box:8888 npm run dev
 ```
 
-On Debian/Ubuntu it installs as a normal package — no `.war`, no Tomcat:
+On Ubuntu 20.04 / 22.04 / 24.04 one command installs it as a system service —
+no `.war`, no Tomcat (it also installs Node.js if the distro's is too old):
+
+```bash
+sudo bash panel/packaging/install-ubuntu.sh --backend oscam \
+     --url http://127.0.0.1:8888 --domain panel.example.com --yes
+```
+
+or build the Debian package yourself:
 
 ```bash
 cd panel && bash packaging/build-deb.sh
@@ -32,6 +40,7 @@ sudoedit /etc/csp-panel/panel.env && sudo systemctl start csp-panel
 
 See [`panel/README.md`](panel/README.md) for the architecture, the REST API and
 the mapping of every legacy artefact to its replacement, and
-[`panel/packaging/README.md`](panel/packaging/README.md) for the `.deb`.
+[`panel/packaging/README.md`](panel/packaging/README.md) for the `.deb`
+([guía de instalación en español](panel/packaging/INSTALL.es.md)).
 
 The old `web/` tree is left untouched, so existing deployments keep working.

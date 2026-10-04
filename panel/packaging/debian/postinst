@@ -19,9 +19,14 @@ case "$1" in
       chmod 640 "$CONF"
     fi
 
-    if ! command -v node >/dev/null && ! command -v nodejs >/dev/null; then
+    node_found=
+    for candidate in "$(command -v node || true)" "$(command -v nodejs || true)" \
+                     /usr/bin/node /usr/local/bin/node /opt/node/bin/node; do
+      if [ -n "$candidate" ] && [ -x "$candidate" ]; then node_found=$candidate; break; fi
+    done
+    if [ -z "$node_found" ]; then
       echo "csp-panel: WARNING - no node binary found in PATH." >&2
-      echo "csp-panel: install Node.js >= 18 before starting the service." >&2
+      echo "csp-panel: install Node.js >= 20 before starting the service." >&2
     fi
 
     if [ -d /run/systemd/system ]; then

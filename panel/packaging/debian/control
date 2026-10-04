@@ -4,7 +4,7 @@ Section: net
 Priority: optional
 Architecture: all
 Depends: ${misc:Depends}, adduser
-Recommends: nodejs (>= 18), nginx
+Recommends: nodejs (>= 20), nginx
 Suggests: oscam
 Installed-Size: @SIZE@
 Maintainer: CSP Panel contributors <noreply@example.com>
@@ -23,6 +23,6 @@ Description: Modern web panel for CardServProxy and OSCam
  behind an opaque httpOnly cookie. The service listens on 127.0.0.1:8090 by
  default and is meant to be published through nginx.
  .
- Node.js >= 18 is required at runtime. It is only a recommendation because
+ Node.js >= 20 is required at runtime. It is only a recommendation because
  many setups install Node from nodesource, nvm or an upstream tarball rather
  than from the distribution package.

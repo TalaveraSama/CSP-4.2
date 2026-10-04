@@ -60,9 +60,20 @@ rm -rf "$STAGE$LIB"/node_modules/.package-lock.json
 cat > "$STAGE/usr/bin/$PKG" <<'SH'
 #!/bin/sh
 # Starts the CSP/OSCam web panel.
-NODE="$(command -v node || command -v nodejs || true)"
-if [ -z "$NODE" ]; then
-  echo "csp-panel: node not found in PATH (install nodejs >= 18)" >&2
+# Node may come from the distro, nodesource, nvm or a tarball: look around.
+# Set NODE_BIN in /etc/csp-panel/panel.env to force a specific interpreter.
+for candidate in \
+  "$NODE_BIN" \
+  "$(command -v node 2>/dev/null)" \
+  "$(command -v nodejs 2>/dev/null)" \
+  /usr/bin/node /usr/local/bin/node /opt/node/bin/node \
+  /usr/bin/nodejs /usr/local/bin/nodejs
+do
+  [ -n "$candidate" ] && [ -x "$candidate" ] && NODE="$candidate" && break
+done
+if [ -z "${NODE:-}" ]; then
+  echo "csp-panel: no node interpreter found." >&2
+  echo "csp-panel: install Node.js >= 20, or set NODE_BIN=/path/to/node in /etc/csp-panel/panel.env" >&2
   exit 1
 fi
 exec "$NODE" /usr/lib/csp-panel/server/dist/index.js "$@"

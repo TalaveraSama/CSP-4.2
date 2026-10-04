@@ -5,6 +5,20 @@ systemd service. All runtime dependencies are pure JavaScript and are vendored
 into the package, so **installing needs no network and no `npm`** — only a
 Node.js runtime.
 
+## Ubuntu one-liner
+
+For Ubuntu 20.04 / 22.04 / 24.04 there is an installer that does everything
+(Node.js, build, install, `panel.env`, systemd, optional nginx vhost):
+
+```bash
+sudo bash packaging/install-ubuntu.sh                       # guided
+sudo bash packaging/install-ubuntu.sh --backend oscam \
+     --url http://127.0.0.1:8888 --domain panel.example.com --yes
+sudo bash packaging/install-ubuntu.sh --uninstall           # or --purge
+```
+
+Spanish step-by-step guide: [`INSTALL.es.md`](INSTALL.es.md).
+
 ## Build
 
 ```bash
@@ -32,7 +46,9 @@ restart the service only if it was already running.
 
 Node.js is a *Recommends*, not a *Depends*: many hosts install Node from
 nodesource, nvm or a tarball instead of the distro package. Any `node` (or
-`nodejs`) >= 18 in `PATH` works; `postinst` warns if it finds none.
+`nodejs`) >= 20 found in `PATH`, `/usr/bin`, `/usr/local/bin` or `/opt/node/bin`
+works, or set `NODE_BIN=/path/to/node` in `panel.env`; `postinst` warns if it
+finds none.
 
 ## Layout
 
