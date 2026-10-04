@@ -1,0 +1,18 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+  purge)
+    rm -rf /etc/csp-panel
+    if getent passwd csp-panel >/dev/null; then
+      deluser --system csp-panel >/dev/null 2>&1 || true
+    fi
+    ;;
+  remove|upgrade|failed-upgrade|abort-install|abort-upgrade|disappear) ;;
+esac
+
+if [ -d /run/systemd/system ]; then
+  systemctl daemon-reload >/dev/null 2>&1 || true
+fi
+
+exit 0

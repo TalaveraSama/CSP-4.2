@@ -47,8 +47,9 @@ Docker: `docker build -t csp-panel panel && docker run -p 8090:8090 -e BACKEND=o
 
 | Target | How |
 | --- | --- |
+| **Debian/Ubuntu `.deb`** | `bash packaging/build-deb.sh` → `build/csp-panel_<ver>_all.deb`; installs to `/usr/lib/csp-panel` with a `csp-panel.service` unit, `/etc/csp-panel/panel.env` and an unprivileged `csp-panel` user — see [`packaging/README.md`](packaging/README.md) |
 | **aaPanel** | Node project (PM2) + nginx reverse proxy — step by step in [`deploy/aapanel/README.md`](deploy/aapanel/README.md), with `install.sh`, `ecosystem.config.cjs` and ready nginx snippets |
-| systemd | [`deploy/csp-panel.service`](deploy/csp-panel.service) |
+| systemd (from source) | [`deploy/csp-panel.service`](deploy/csp-panel.service) |
 | Docker | [`Dockerfile`](Dockerfile) |
 
 The server reads `panel/.env` at startup (real env vars win), marks its session

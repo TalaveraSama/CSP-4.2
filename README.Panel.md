@@ -22,7 +22,16 @@ cd panel && CSP_URL=https://proxy-host:8082 npm run dev
 cd panel && BACKEND=oscam OSCAM_URL=http://box:8888 npm run dev
 ```
 
+On Debian/Ubuntu it installs as a normal package — no `.war`, no Tomcat:
+
+```bash
+cd panel && bash packaging/build-deb.sh
+sudo apt install ./build/csp-panel_0.2.0_all.deb
+sudoedit /etc/csp-panel/panel.env && sudo systemctl start csp-panel
+```
+
 See [`panel/README.md`](panel/README.md) for the architecture, the REST API and
-the mapping of every legacy artefact to its replacement.
+the mapping of every legacy artefact to its replacement, and
+[`panel/packaging/README.md`](panel/packaging/README.md) for the `.deb`.
 
 The old `web/` tree is left untouched, so existing deployments keep working.

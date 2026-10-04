@@ -1,6 +1,6 @@
 {
   "name": "csp-panel",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Modern, Java-free web panel for CardServProxy (CSP) 4.2",
   "workspaces": [
@@ -14,7 +14,8 @@
     "build": "npm run build --workspace=@csp-panel/web && npm run build --workspace=@csp-panel/server",
     "start": "npm run start --workspace=@csp-panel/server",
     "typecheck": "npm run typecheck --workspace=@csp-panel/server && npm run typecheck --workspace=@csp-panel/web",
-    "test": "npm run test --workspace=@csp-panel/server"
+    "test": "npm run test --workspace=@csp-panel/server",
+    "deb": "bash packaging/build-deb.sh"
   },
   "devDependencies": {
     "concurrently": "^9.1.0"

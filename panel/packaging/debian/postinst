@@ -1,0 +1,55 @@
+#!/bin/sh
+set -e
+
+PANEL_USER=csp-panel
+PANEL_HOME=/usr/lib/csp-panel
+CONF=/etc/csp-panel/panel.env
+
+case "$1" in
+  configure)
+    # Unprivileged system account; the panel never needs to write anything.
+    if ! getent passwd "$PANEL_USER" >/dev/null; then
+      adduser --system --group --no-create-home --home "$PANEL_HOME" \
+              --gecos "CSP/OSCam web panel" "$PANEL_USER" >/dev/null
+    fi
+
+    # The config holds softcam credentials: keep it readable by the service only.
+    if [ -f "$CONF" ]; then
+      chown root:"$PANEL_USER" "$CONF"
+      chmod 640 "$CONF"
+    fi
+
+    if ! command -v node >/dev/null && ! command -v nodejs >/dev/null; then
+      echo "csp-panel: WARNING - no node binary found in PATH." >&2
+      echo "csp-panel: install Node.js >= 18 before starting the service." >&2
+    fi
+
+    if [ -d /run/systemd/system ]; then
+      systemctl daemon-reload >/dev/null 2>&1 || true
+      if [ -z "$2" ]; then
+        # First install: enable but do not start until the admin sets a backend.
+        systemctl enable csp-panel.service >/dev/null 2>&1 || true
+        cat <<EOF
+
+csp-panel installed.
+
+  1. Point it at your softcam:   sudoedit $CONF
+       BACKEND=oscam
+       OSCAM_URL=http://192.168.1.10:8888
+     (or BACKEND=csp + CSP_URL=https://proxy-host:8082, or MOCK=1 to try it out)
+
+  2. Start it:                   sudo systemctl start csp-panel
+  3. Check it:                   curl http://127.0.0.1:8090/healthz
+  4. Publish it with nginx:      /usr/share/doc/csp-panel/examples/nginx-subdomain.conf
+
+EOF
+      else
+        # Upgrade: restart only if it was already running.
+        systemctl try-restart csp-panel.service >/dev/null 2>&1 || true
+      fi
+    fi
+    ;;
+  abort-upgrade|abort-remove|abort-deconfigure) ;;
+esac
+
+exit 0

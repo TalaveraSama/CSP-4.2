@@ -1,0 +1,38 @@
+[Unit]
+Description=CSP/OSCam web panel
+Documentation=file:///usr/share/doc/csp-panel/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=csp-panel
+Group=csp-panel
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/csp-panel/panel.env
+WorkingDirectory=/usr/lib/csp-panel
+ExecStart=/usr/bin/csp-panel
+Restart=on-failure
+RestartSec=5
+
+# The panel only reads its own files and opens outbound connections.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+CapabilityBoundingSet=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,28 @@
+Package: csp-panel
+Version: @VERSION@
+Section: net
+Priority: optional
+Architecture: all
+Depends: ${misc:Depends}, adduser
+Recommends: nodejs (>= 18), nginx
+Suggests: oscam
+Installed-Size: @SIZE@
+Maintainer: CSP Panel contributors <noreply@example.com>
+Homepage: https://github.com/TalaveraSama/CSP-4.2
+Description: Modern web panel for CardServProxy and OSCam
+ A Java-free replacement for the legacy CardServProxy status web
+ (cs-status.war), which also speaks the OSCam web API.
+ .
+ It ships a small Node service that talks to the softcam over its XML API
+ (CSP /xmlHandler or OSCam /oscamapi.html, including HTTP digest auth),
+ normalises both dialects into one JSON API, and serves a React single page
+ application with overview, readers/connectors, sessions, channels, events,
+ logs, admin commands and a configuration editor.
+ .
+ Credentials never reach the browser: they are kept in a server side session
+ behind an opaque httpOnly cookie. The service listens on 127.0.0.1:8090 by
+ default and is meant to be published through nginx.
+ .
+ Node.js >= 18 is required at runtime. It is only a recommendation because
+ many setups install Node from nodesource, nvm or an upstream tarball rather
+ than from the distribution package.
