@@ -634,6 +634,26 @@ show_status() {
       || printf '  %-16s %s\n' "backend reachable" "${YELLOW}no — that is what the login error means${OFF}"
   fi
 
+  # The three ways to lock yourself out of your own panel, all silent.
+  local host secure
+  host="$(ini_get "$CONF" HOST)"
+  secure="$(ini_get "$CONF" SECURE_COOKIES)"
+  if [ "$secure" = always ] && [ "${host:-127.0.0.1}" != 127.0.0.1 ]; then
+    warn "SECURE_COOKIES=always and the panel is published directly on ${host}:${PORT:-8090}:"
+    warn "  over plain http the browser throws the session away and the login loops."
+    echo "    use https (nginx + certbot), or: sudo sed -i 's/^SECURE_COOKIES=.*/SECURE_COOKIES=auto/' $CONF"
+  fi
+  if [ "${host:-127.0.0.1}" = 127.0.0.1 ]; then
+    warn "the panel listens on loopback only: nothing on your LAN can reach ${PORT:-8090}"
+    echo "    sudo bash $SELF --listen 0.0.0.0 --yes      # or publish it with --domain"
+  fi
+  if have ufw && ufw status 2>/dev/null | grep -q "^Status: active"; then
+    if ! ufw status 2>/dev/null | grep -qE "^${PORT:-8090}(/tcp)?[[:space:]]+ALLOW"; then
+      warn "ufw is active and ${PORT:-8090}/tcp is not allowed"
+      echo "    sudo ufw allow ${PORT:-8090}/tcp"
+    fi
+  fi
+
   # A stale unit is invisible otherwise and costs an hour of head scratching.
   if [ -f /lib/systemd/system/cardservproxy.service ]; then
     echo

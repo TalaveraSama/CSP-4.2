@@ -95,6 +95,15 @@ SECURE_COOKIES=always
 TRUST_PROXY=loopback    # para que el límite de intentos vea la IP real
 ```
 
+> ⚠️ **`SECURE_COOKIES=always` solo si entras por https.** Con esa opción la
+> cookie de sesión lleva el flag `Secure`, y un navegador que entra por
+> `http://192.168.1.x:8090` **la tira sin decir nada**: el login responde
+> correctamente y vuelves a la pantalla de login, una y otra vez. Si quieres
+> seguir entrando por IP y sin TLS desde la red local, deja
+> `SECURE_COOKIES=auto`, que pone el flag solo cuando la conexión es segura.
+> Desde la versión actual el panel lo detecta y te lo dice en vez de dejarte
+> en bucle, y `--status` también avisa.
+
 ### Cortafuegos
 
 Fuera todo lo que no sea el panel y los puertos de tus clientes:

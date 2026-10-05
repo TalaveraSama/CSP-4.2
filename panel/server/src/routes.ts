@@ -80,6 +80,23 @@ export function createApiRouter(
 
   const api = Router();
 
+  /**
+   * A Secure cookie handed out over plain http is dropped by the browser
+   * without a word: the login answers 200 and the next request arrives with
+   * no session, so the panel bounces back to the login form forever. Saying
+   * so is infinitely better than letting someone chase that for an hour.
+   */
+  const cookieWouldBeDropped = (req: Request): boolean =>
+    wantsSecure(secureCookies, req) && !req.secure && req.headers['x-forwarded-proto'] !== 'https';
+
+  const refuseDroppedCookie = (res: Response) =>
+    res.status(400).json({
+      error:
+        'this panel is set to Secure cookies (SECURE_COOKIES=always) but you are reaching it over plain http, ' +
+        'and the browser would throw the session away. Open it over https, or set SECURE_COOKIES=auto in ' +
+        '/etc/csp-panel/panel.env and restart the panel.',
+    });
+
   // A state changing request must carry a JSON body: a form on someone
   // else's page cannot do that.
   api.use(requireJsonForWrites);
@@ -160,6 +177,7 @@ export function createApiRouter(
         });
       }
       if (reseller) {
+        if (cookieWouldBeDropped(req)) return refuseDroppedCookie(res);
         limiter.succeed(ip, user);
         const session = sessions.create(
           { user: reseller.user, admin: false, superUser: false },
@@ -186,6 +204,8 @@ export function createApiRouter(
         return res.status(401).json({ error: 'invalid credentials' });
       }
       limiter.succeed(ip, user);
+
+      if (cookieWouldBeDropped(req)) return refuseDroppedCookie(res);
 
       const session = sessions.create(identity, { user, password, sessionId: identity.sessionId });
       session.role = 'admin';
