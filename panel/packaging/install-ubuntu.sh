@@ -762,7 +762,7 @@ remove_csp() {
 # A reseller is a panel user (not a softcam one) who sells lines out of a
 # credit balance and only ever sees his own clients.
 add_reseller() {
-  local store=/etc/$PKG/resellers.json
+  local store=/var/lib/$PKG/resellers.json
   local pass="${NEW_PASSWORD:-$(random_password)}" credits="${NEW_CREDITS:-0}"
 
   # Resellers have no account on the softcam, so the panel needs credentials
@@ -824,7 +824,8 @@ print(f"{user} / {password} ({credits} credit(s))")
 PY
   local rc=$?
   [ $rc -eq 0 ] || exit $rc
-  chown root:$PKG "$store" 2>/dev/null || true
+  chown $PKG:$PKG "$store" 2>/dev/null || true
+  chown $PKG:$PKG "$(dirname "$store")" 2>/dev/null || true
   systemd_running && systemctl restart "$SERVICE" 2>/dev/null || true
   ok "reseller created; he logs into the panel with that user and password"
 }

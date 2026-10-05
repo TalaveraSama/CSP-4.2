@@ -4,6 +4,7 @@ set -e
 PANEL_USER=csp-panel
 PANEL_HOME=/usr/lib/csp-panel
 CONF=/etc/csp-panel/panel.env
+STATE=/var/lib/csp-panel
 
 case "$1" in
   configure)
@@ -11,6 +12,17 @@ case "$1" in
     if ! getent passwd "$PANEL_USER" >/dev/null; then
       adduser --system --group --no-create-home --home "$PANEL_HOME" \
               --gecos "CSP/OSCam web panel" "$PANEL_USER" >/dev/null
+    fi
+
+    # Resellers, their credits and who owns which client are state, not
+    # configuration: /var/lib, owned by the service, which has to create and
+    # rename files in there.
+    mkdir -p "$STATE"
+    chown "$PANEL_USER":"$PANEL_USER" "$STATE"
+    chmod 750 "$STATE"
+    if [ -f "$STATE/resellers.json" ]; then
+      chown "$PANEL_USER":"$PANEL_USER" "$STATE/resellers.json"
+      chmod 640 "$STATE/resellers.json"
     fi
 
     # The config holds softcam credentials: keep it readable by the service only.

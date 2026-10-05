@@ -3,7 +3,8 @@ set -e
 
 case "$1" in
   purge)
-    rm -rf /etc/csp-panel
+    # Resellers and their credits are data: only a purge may take them.
+    rm -rf /etc/csp-panel /var/lib/csp-panel
     if getent passwd csp-panel >/dev/null; then
       deluser --system csp-panel >/dev/null 2>&1 || true
     fi

@@ -37,7 +37,7 @@ const sessions = new SessionStore(config.sessionTtlMs);
 
 // The panel's own users (resellers) and who owns which client. Optional: with
 // no writable path there is simply no reseller support.
-const resellersPath = process.env.RESELLERS_FILE ?? '/etc/csp-panel/resellers.json';
+const resellersPath = process.env.RESELLERS_FILE ?? '/var/lib/csp-panel/resellers.json';
 let resellers: ResellerStore | undefined;
 try {
   resellers = new ResellerStore(resellersPath);

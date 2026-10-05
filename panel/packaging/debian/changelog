@@ -1,3 +1,30 @@
+csp-panel (0.5.0) unstable; urgency=medium
+
+  * Resellers: the panel now has users of its own. A reseller logs in with
+    his own password, sees only his own clients and sells out of a credit
+    balance (1 credit = 1 month of one line). Creating charges the months
+    asked for, renewing extends from the later of today and the current
+    expiry, deleting refunds nothing. Administrators see everything and pay
+    nothing. State lives in /var/lib/csp-panel/resellers.json: scrypt
+    passwords, balances, ownership, expiry and a ledger of every movement.
+  * Accounts: expiry column with days left, a renew action, and the panel
+    tracks expiry itself so it also works on backends without such a field.
+  * New Resellers tab (admin): create, top up, enable, disable, delete and
+    the credit history.
+  * Visual overhaul: layered dark palette, translucent top bar, pill
+    navigation, stat cards with tabular figures and state colours, sticky
+    table headers, accessible focus rings and a usable mobile layout.
+  * install-ubuntu.sh: --add-reseller, --serve-clients (NCam attends your
+    clients over newcamd and cccam, no proxy needed), --remove-csp,
+    --status, --credentials, --reset-password, --add-user, --add-reader,
+    --migrate-users, --only-ncam and --all.
+  * Fixed: the proxy.xml the installer writes needs ver="0.9.0", the
+    CardServProxy unit must pass -Dcom.bowman.cardserv.allowanyjvm=true and
+    the path of its config, and an account must be written inside
+    <auth-config> to be seen by SimpleUserManager.
+
+ -- CSP Panel contributors <noreply@example.com>  Sun, 05 Oct 2025 06:30:00 +0000
+
 csp-panel (0.4.0) unstable; urgency=medium
 
   * Accounts tab: create, edit and delete the client accounts of a
