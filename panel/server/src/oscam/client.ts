@@ -105,6 +105,11 @@ export const NCAM_CONFIG_FILES = [
   'ncam.whitelist',
   'ncam.ratelimit',
   'ncam.tiers',
+  // Present in the actively maintained builds (fairbird/NCam); older forks
+  // simply answer with an error for the ones they do not know.
+  'ncam.fakecws',
+  'ncam.twin',
+  'ncam.fs',
 ];
 
 export interface OscamFlavour {
