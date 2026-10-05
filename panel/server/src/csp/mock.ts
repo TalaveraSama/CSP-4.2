@@ -89,8 +89,14 @@ const MOCK_CONFIG = `<?xml version="1.0" encoding="UTF-8"?>
   <cws-connector name="card-local" profile="cable" host="127.0.0.1" port="10000" user="proxy" password="secret"/>
   <cws-connector name="peer-managua" profile="cable" host="10.8.0.2" port="12000" user="proxy" password="secret"/>
   <cws-connector name="peer-leon" profile="sat" protocol="cccam" host="10.8.0.3" port="12001" user="proxy" password="secret"/>
-  <user-manager class="com.bowman.cardserv.XmlUserManager">
-    <file>etc/users.xml</file>
+  <user-manager class="com.bowman.cardserv.SimpleUserManager">
+    <!-- Accounts: the panel edits these elements in place. -->
+    <auth-config>
+      <user name="admin" password="admin" profiles="cable sat" admin="true"/>
+      <user name="cliente1" password="secreto" profiles="cable" max-connections="2"/>
+      <user name="cliente2" password="secreto2" profiles="sat" ip-mask="10.8.0.*"/>
+      <user name="moroso" password="x" enabled="false"/>
+    </auth-config>
   </user-manager>
   <status-web enabled="true" port="8082"/>
 </cardservproxy>

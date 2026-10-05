@@ -12,8 +12,8 @@ export function cspInfo(target: string, mock: boolean): BackendInfo {
     target,
     configFormat: 'xml',
     configFiles: ['proxy.xml'],
-    features: { profiles: true, cache: true, plugins: true, connectorServices: true, seen: true },
-    labels: { connectors: 'Connectors', connector: 'Connector', profiles: 'CA profiles' },
+    features: { profiles: true, cache: true, plugins: true, connectorServices: true, seen: true, accounts: true },
+    labels: { connectors: 'Connectors', connector: 'Connector', profiles: 'CA profiles', product: 'CSP' },
   };
 }
 

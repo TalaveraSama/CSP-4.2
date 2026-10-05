@@ -1,4 +1,5 @@
 import { Router, type NextFunction, type Request, type Response } from 'express';
+import { AccountError, findAccount, listAccounts, removeAccount, upsertAccount, type Account } from './accounts.js';
 import { BackendError, type ProxyBackend } from './backend.js';
 import type { StatusCommand } from './csp/types.js';
 import { COOKIE_NAME, type PanelSession, type SessionStore } from './sessions.js';
@@ -250,9 +251,80 @@ export function createApiRouter(backend: ProxyBackend, sessions: SessionStore, s
     }),
   );
 
+  /* -------------------------------------------------------------- accounts */
+
+  // Accounts are stored in proxy.xml, so every operation is a fetch-cfg /
+  // edit / cfgHandler round trip. Only the CSP backend has them: OSCam and
+  // NCam keep their accounts in ncam.user, which the Config tab edits.
+  const accountsConfig = async (req: Request) => {
+    if (backend.info.kind !== 'csp') {
+      throw new AccountError(
+        `account management is only available for the CSP backend (this panel manages ${backend.info.labels.product})`,
+        501,
+      );
+    }
+    return backend.fetchConfig(req.session!.auth);
+  };
+
+  const saveAccounts = async (req: Request, xml: string, message: string) => {
+    const result = await backend.saveConfig(req.session!.auth, xml);
+    if (!result.ok) throw new AccountError(result.message || 'the proxy refused the new config', 400);
+    return { ok: true, message };
+  };
+
+  api.get(
+    '/accounts',
+    requireAdmin,
+    wrap(async (req, res) => {
+      const file = await accountsConfig(req);
+      res.json({ accounts: listAccounts(file.content), writable: file.writable });
+    }),
+  );
+
+  api.post(
+    '/accounts',
+    requireAdmin,
+    wrap(async (req, res) => {
+      const file = await accountsConfig(req);
+      const account = req.body as Account;
+      const xml = upsertAccount(file.content, account, { create: true });
+      res.json(await saveAccounts(req, xml, `account ${account.name} created`));
+    }),
+  );
+
+  api.put(
+    '/accounts/:name',
+    requireAdmin,
+    wrap(async (req, res) => {
+      const file = await accountsConfig(req);
+      const current = findAccount(file.content, req.params.name!);
+      if (!current) throw new AccountError(`there is no account called "${req.params.name}"`, 404);
+      // An empty password means "leave it as it was".
+      const patch = req.body as Partial<Account>;
+      const account: Account = { ...current, ...patch, name: current.name };
+      if (!patch.password) account.password = current.password;
+      const xml = upsertAccount(file.content, account, { create: false });
+      res.json(await saveAccounts(req, xml, `account ${account.name} updated`));
+    }),
+  );
+
+  api.delete(
+    '/accounts/:name',
+    requireAdmin,
+    wrap(async (req, res) => {
+      const file = await accountsConfig(req);
+      const xml = removeAccount(file.content, req.params.name!);
+      res.json(await saveAccounts(req, xml, `account ${req.params.name} removed`));
+    }),
+  );
+
   /* --------------------------------------------------------------- errors */
 
   api.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    if (err instanceof AccountError) {
+      res.status(err.status).json({ error: err.message });
+      return;
+    }
     if (err instanceof BackendError) {
       res.status(err.status).json({ error: err.message });
       return;

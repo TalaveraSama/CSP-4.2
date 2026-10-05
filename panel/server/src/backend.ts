@@ -45,12 +45,16 @@ export interface BackendInfo {
     connectorServices: boolean;
     /** last-seen style log. */
     seen: boolean;
+    /** Accounts can be created/edited from the panel (CSP: users in proxy.xml). */
+    accounts: boolean;
   };
   /** Wording differences, e.g. OSCam calls connectors "readers". */
   labels: {
     connectors: string;
     connector: string;
     profiles: string;
+    /** Product name: "CSP", "OSCam", "NCam". */
+    product: string;
   };
 }
 

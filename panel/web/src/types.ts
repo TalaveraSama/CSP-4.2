@@ -235,3 +235,17 @@ export interface StatusCommand {
   command: string;
   params?: Record<string, string | number | boolean | undefined>;
 }
+
+export interface Account {
+  name: string;
+  password: string;
+  profiles?: string;
+  ipMask?: string;
+  maxConnections?: number;
+  admin?: boolean;
+  enabled?: boolean;
+  debug?: boolean;
+  displayName?: string;
+  email?: string;
+  mapExcluded?: boolean;
+}

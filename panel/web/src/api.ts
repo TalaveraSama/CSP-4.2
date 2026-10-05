@@ -1,4 +1,4 @@
-import type { CspIdentity, StatusSnapshot } from './types';
+import type { Account, CspIdentity, StatusSnapshot } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -48,11 +48,13 @@ export interface Meta {
     plugins: boolean;
     connectorServices: boolean;
     seen: boolean;
+    accounts: boolean;
   };
   labels: {
     connectors: string;
     connector: string;
     profiles: string;
+    product: string;
   };
 }
 
@@ -92,6 +94,22 @@ export const api = {
 
   runCommand: (name: string, params: Record<string, string>) =>
     request<CommandResult>(`/commands/${encodeURIComponent(name)}`, { method: 'POST', body: JSON.stringify(params) }),
+
+  accounts: () => request<{ accounts: Account[]; writable: boolean }>('/accounts'),
+  createAccount: (account: Account) =>
+    request<CommandResult>('/accounts', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(account),
+    }),
+  updateAccount: (name: string, account: Partial<Account>) =>
+    request<CommandResult>(`/accounts/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(account),
+    }),
+  deleteAccount: (name: string) =>
+    request<CommandResult>(`/accounts/${encodeURIComponent(name)}`, { method: 'DELETE' }),
 
   config: (file?: string) => request<ConfigFile>(`/config${query({ file })}`),
   saveConfig: (content: string, file?: string) =>
