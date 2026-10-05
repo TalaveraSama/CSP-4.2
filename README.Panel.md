@@ -63,3 +63,5 @@ curl -fsSL https://raw.githubusercontent.com/TalaveraSama/CSP-4.2/arena/01a0f2ba
 ```
 
 The old `web/` tree is left untouched, so existing deployments keep working.
+
+Manual completo en español (uso, comandos, API): [`panel/docs/MANUAL.es.md`](panel/docs/MANUAL.es.md).

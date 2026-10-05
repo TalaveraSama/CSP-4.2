@@ -1,5 +1,7 @@
 # Instalar el panel en Ubuntu 20.04 / 22.04 / 24.04
 
+> Manual de uso del panel, comandos y API: [`../docs/MANUAL.es.md`](../docs/MANUAL.es.md)
+
 Un solo comando deja el panel instalado como servicio del sistema, sin Java,
 sin Tomcat y sin tocar nada de la instalación legacy.
 
