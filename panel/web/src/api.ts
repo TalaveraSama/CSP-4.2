@@ -109,7 +109,14 @@ export const api = {
     }),
   updateReseller: (
     id: string,
-    body: { password?: string; enabled?: boolean; note?: string; credits?: number; telegramChatId?: string },
+    body: {
+      password?: string;
+      enabled?: boolean;
+      note?: string;
+      credits?: number;
+      telegramChatId?: string;
+      group?: string;
+    },
   ) =>
     request<CommandResult>(`/resellers/${encodeURIComponent(id)}`, {
       method: 'PUT',

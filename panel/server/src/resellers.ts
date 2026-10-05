@@ -29,6 +29,12 @@ export interface Reseller {
   note?: string;
   /** Optional: where to send him his own expiry digest. */
   telegramChatId?: string;
+  /**
+   * Reader groups (NCam) or profiles (CSP) this reseller may sell. When set,
+   * it is forced on every account he creates or edits: otherwise he could
+   * give his customers access to cards he does not pay for.
+   */
+  group?: string;
   createdAt: string;
 }
 
@@ -128,6 +134,7 @@ export class ResellerStore {
       enabled: r.enabled,
       note: r.note,
       telegramChatId: r.telegramChatId,
+      group: r.group,
       createdAt: r.createdAt,
       clients: Object.values(this.db.clients).filter((c) => c.owner === r.id).length,
     }));
@@ -164,7 +171,10 @@ export class ResellerStore {
     return reseller;
   }
 
-  update(id: string, patch: { password?: string; enabled?: boolean; note?: string; telegramChatId?: string }): Reseller {
+  update(
+    id: string,
+    patch: { password?: string; enabled?: boolean; note?: string; telegramChatId?: string; group?: string },
+  ): Reseller {
     const reseller = this.byId(id);
     if (!reseller) throw new ResellerError('no such reseller', 404);
     if (patch.password) {
@@ -175,6 +185,12 @@ export class ResellerStore {
     if (patch.note !== undefined) reseller.note = patch.note;
     if (patch.telegramChatId !== undefined) {
       reseller.telegramChatId = patch.telegramChatId || undefined;
+    }
+    if (patch.group !== undefined) {
+      if (/[\x00-\x1f\x7f]/.test(patch.group) || patch.group.length > 64) {
+        throw new ResellerError('the group is not valid');
+      }
+      reseller.group = patch.group || undefined;
     }
     this.save();
     return reseller;

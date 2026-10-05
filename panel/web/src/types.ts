@@ -297,6 +297,7 @@ export interface Reseller {
   createdAt: string;
   clients: number;
   telegramChatId?: string;
+  group?: string;
 }
 
 export interface ExpiringLine {

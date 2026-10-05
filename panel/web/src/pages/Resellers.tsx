@@ -39,6 +39,15 @@ export function Resellers() {
     void run(() => api.updateReseller(r.id, { credits: n }));
   };
 
+  const setGroup = (r: Reseller) => {
+    const group = prompt(
+      `Reader groups "${r.user}" may sell (empty = whatever he asks for).\nThis is forced on every account he creates.`,
+      r.group ?? '',
+    );
+    if (group === null) return;
+    void run(() => api.updateReseller(r.id, { group: group.trim() }));
+  };
+
   const setTelegram = (r: Reseller) => {
     const chat = prompt(
       `Telegram chat id for "${r.user}" (empty to remove).\nHe will get a daily list of his lines about to expire.`,
@@ -103,6 +112,7 @@ export function Resellers() {
                 <th className="r">Credits</th>
                 <th className="r">Clients</th>
                 <th>Since</th>
+                <th>Groups</th>
                 <th>Telegram</th>
                 <th>Note</th>
                 <th />
@@ -119,6 +129,9 @@ export function Resellers() {
                   </td>
                   <td className="r">{num(r.clients)}</td>
                   <td className="muted small">{r.createdAt.slice(0, 10)}</td>
+                  <td className="muted small">
+                    {r.group ? <Badge tone="info">{r.group}</Badge> : <span className="muted">any</span>}
+                  </td>
                   <td className="muted small">{r.telegramChatId ?? '—'}</td>
                   <td className="muted small">{r.note}</td>
                   <td className="r nowrap">
@@ -127,6 +140,9 @@ export function Resellers() {
                     </button>
                     <button className="mini" disabled={busy} onClick={() => setPassword(r)}>
                       Password
+                    </button>
+                    <button className="mini" disabled={busy} onClick={() => setGroup(r)}>
+                      Groups
                     </button>
                     <button className="mini" disabled={busy} onClick={() => setTelegram(r)}>
                       Telegram

@@ -12,6 +12,7 @@ import { MockOscamTransport } from './oscam/mock.js';
 import { createApiRouter, serviceCredentials } from './routes.js';
 import { startExpirySweeper } from './expiry.js';
 import { startNotifier } from './notify.js';
+import { securityHeaders } from './security.js';
 import { SessionStore } from './sessions.js';
 import { ResellerStore } from './resellers.js';
 
@@ -52,6 +53,7 @@ app.disable('x-powered-by');
 // Behind aaPanel/nginx the real scheme and ip arrive in X-Forwarded-*.
 app.set('trust proxy', config.trustProxy === 'true' ? true : config.trustProxy === 'false' ? false : config.trustProxy);
 
+app.use(securityHeaders);
 app.use(cookieParser());
 app.use(express.json({ limit: '2mb' }));
 app.use(express.text({ type: ['text/xml', 'application/xml', 'text/plain'], limit: '8mb' }));

@@ -488,6 +488,11 @@ mirar la interfaz sin tener nada instalado.
 
 ## 13. Seguridad
 
+Guía completa para exponerlo a internet: [`SEGURIDAD.es.md`](SEGURIDAD.es.md)
+— lo que hace el panel (scrypt, límite de intentos, CSP, aislamiento de
+resellers, validación de entrada), lo que tienes que hacer tú (TLS,
+cortafuegos, contraseñas) y lo que conscientemente no está resuelto.
+
 - Mantén los webif en loopback (`serverip = 127.0.0.1` en NCam, `bind-ip` en
   el proxy) y expón **solo** el panel.
 - `httpallowed = 127.0.0.1,::1` en NCam. Un rango como `0.0.0.0-255.255.255.0`

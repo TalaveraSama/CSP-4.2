@@ -1,6 +1,7 @@
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { ResellerError, ResellerStore, addMonths, isoDate } from './resellers.js';
 import { expiringSoon } from './notify.js';
+import { LoginLimiter, clientIp, requireJsonForWrites } from './security.js';
 import { AccountError, type Account } from './accounts.js';
 import {
   findOne,
@@ -69,7 +70,19 @@ export function createApiRouter(
       ? { user: process.env.BACKEND_USER, password: process.env.BACKEND_PASS }
       : undefined;
   const serviceAuth = () => serviceCredentials.current;
+
+  // Exposed to the internet, the login form is the most attacked surface of
+  // the stack; everything else needs a session already.
+  const limiter = new LoginLimiter({
+    max: Number(process.env.LOGIN_MAX_FAILURES) || 8,
+    blockMs: (Number(process.env.LOGIN_BLOCK_MINUTES) || 15) * 60_000,
+  });
+
   const api = Router();
+
+  // A state changing request must carry a JSON body: a form on someone
+  // else's page cannot do that.
+  api.use(requireJsonForWrites);
 
   const requireSession = (req: Request, res: Response, next: NextFunction) => {
     const session = sessions.get(req.cookies?.[COOKIE_NAME]);
@@ -119,10 +132,26 @@ export function createApiRouter(
     wrap(async (req, res) => {
       const { user, password } = (req.body ?? {}) as { user?: string; password?: string };
       if (!user || !password) return res.status(400).json({ error: 'user and password are required' });
+      if (typeof user !== 'string' || typeof password !== 'string' || user.length > 64 || password.length > 256) {
+        return res.status(400).json({ error: 'user and password are required' });
+      }
+
+      const ip = clientIp(req);
+      const wait = limiter.retryAfter(ip, user);
+      if (wait > 0) {
+        res.setHeader('Retry-After', String(wait));
+        return res.status(429).json({ error: `too many attempts, try again in ${Math.ceil(wait / 60)} min` });
+      }
 
       // Resellers are the panel's own users, so they are checked here first;
       // everybody else is still authenticated by the softcam itself.
-      const reseller = resellers?.login(user, password);
+      let reseller;
+      try {
+        reseller = resellers?.login(user, password);
+      } catch (err) {
+        limiter.fail(ip, user);
+        throw err;
+      }
       if (reseller && !serviceAuth()) {
         return res.status(503).json({
           error:
@@ -131,6 +160,7 @@ export function createApiRouter(
         });
       }
       if (reseller) {
+        limiter.succeed(ip, user);
         const session = sessions.create(
           { user: reseller.user, admin: false, superUser: false },
           // A reseller has no credentials on the backend: the panel talks to
@@ -141,7 +171,9 @@ export function createApiRouter(
         session.resellerId = reseller.id;
         res.cookie(COOKIE_NAME, session.id, {
           httpOnly: true,
-          sameSite: 'lax',
+          // Nothing links into the panel from outside, so strict costs
+          // nothing and closes cross-site requests completely.
+          sameSite: 'strict',
           secure: wantsSecure(secureCookies, req),
           path: '/',
         });
@@ -149,7 +181,11 @@ export function createApiRouter(
       }
 
       const identity = await backend.login(user, password);
-      if (!identity) return res.status(401).json({ error: 'invalid credentials' });
+      if (!identity) {
+        limiter.fail(ip, user);
+        return res.status(401).json({ error: 'invalid credentials' });
+      }
+      limiter.succeed(ip, user);
 
       const session = sessions.create(identity, { user, password, sessionId: identity.sessionId });
       session.role = 'admin';
@@ -158,7 +194,7 @@ export function createApiRouter(
       serviceCredentials.current ??= { user, password };
       res.cookie(COOKIE_NAME, session.id, {
         httpOnly: true,
-        sameSite: 'lax',
+        sameSite: 'strict',
         secure: wantsSecure(secureCookies, req),
         path: '/',
       });
@@ -408,6 +444,20 @@ export function createApiRouter(
     }
   };
 
+  /**
+   * Whatever a reseller sends, the groups (NCam) or profiles (CSP) of his
+   * accounts are the ones the operator gave him. Trusting the request here
+   * would let him sell readers he does not pay for.
+   */
+  const pinGroups = (req: Request, account: Account): Account => {
+    if (!isReseller(req)) return account;
+    const allowed = requireResellers().byId(req.session!.resellerId!)?.group;
+    if (!allowed) return account;
+    return backend.info.kind === 'csp'
+      ? { ...account, profiles: allowed }
+      : { ...account, group: allowed };
+  };
+
   /** Months asked for in the request body, defaulting to one. */
   const monthsOf = (body: unknown): number => {
     const value = Number((body as { months?: unknown })?.months ?? 1);
@@ -455,7 +505,7 @@ export function createApiRouter(
     requireAccountAccess,
     wrap(async (req, res) => {
       const store = await accountStore(req);
-      const account = { ...(req.body as Account) };
+      const account = pinGroups(req, { ...(req.body as Account) });
       const months = monthsOf(req.body);
       const owner = ownedBy(req);
 
@@ -495,7 +545,7 @@ export function createApiRouter(
 
       // An empty password means "leave it as it was".
       const patch = req.body as Partial<Account> & { renew?: number };
-      const account: Account = { ...current, ...patch, name: current.name };
+      const account: Account = pinGroups(req, { ...current, ...patch, name: current.name });
       if (!patch.password) account.password = current.password;
 
       // Renewing extends from today, or from the current date when it is
@@ -586,15 +636,16 @@ export function createApiRouter(
     '/resellers/:id',
     requireAdmin,
     wrap(async (req, res) => {
-      const { password, enabled, note, credits, telegramChatId } = req.body as {
+      const { password, enabled, note, credits, telegramChatId, group } = req.body as {
         password?: string;
         enabled?: boolean;
         note?: string;
         credits?: number;
         telegramChatId?: string;
+        group?: string;
       };
       const store = requireResellers();
-      const updated = store.update(req.params.id!, { password, enabled, note, telegramChatId });
+      const updated = store.update(req.params.id!, { password, enabled, note, telegramChatId, group });
       if (credits !== undefined && Number(credits) !== 0) {
         store.addCredits(req.params.id!, Number(credits), Number(credits) > 0 ? 'top up' : 'adjustment');
       }

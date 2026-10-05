@@ -165,12 +165,52 @@ export function findAccount(xml: string, name: string): Account | undefined {
   return listAccounts(xml).find((a) => a.name === name);
 }
 
+/**
+ * Every value that reaches a config file goes through here.
+ *
+ * ncam.user is a line oriented ini file: a value carrying a newline writes
+ * *new keys* into the account. A reseller could have set his own
+ * `group = 1,2,3,4` (readers he does not pay for) or `monlevel = 4` (monitor
+ * access to the softcam) through the password field. Anything with a control
+ * character is refused rather than silently stripped, so nobody wonders
+ * later why half a password disappeared.
+ */
+const MAX_LENGTH: Partial<Record<keyof Account, number>> = {
+  name: 64,
+  password: 64,
+  profiles: 256,
+  ipMask: 256,
+  displayName: 128,
+  email: 128,
+  group: 64,
+  expiry: 32,
+};
+
+function clean(field: keyof Account, value: string): string {
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throw new AccountError(`"${field}" cannot contain line breaks or control characters`);
+  }
+  const trimmed = value.trim();
+  const max = MAX_LENGTH[field] ?? 128;
+  if (trimmed.length > max) throw new AccountError(`"${field}" is too long (max ${max})`);
+  return trimmed;
+}
+
+/** Validates in place: callers get back values safe for both file formats. */
 function validate(account: Account): void {
   if (!account.name?.trim()) throw new AccountError('the account needs a name');
   if (!/^[\w.@-]+$/.test(account.name)) {
     throw new AccountError('the name may only contain letters, digits and . _ - @');
   }
   if (!account.password) throw new AccountError('the account needs a password');
+
+  for (const [field, value] of Object.entries(account) as Array<[keyof Account, unknown]>) {
+    if (typeof value === 'string') (account[field] as string) = clean(field, value);
+  }
+
+  if (account.expiry !== undefined && account.expiry !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(account.expiry)) {
+    throw new AccountError('the expiry date must look like 2026-12-31');
+  }
   if (account.maxConnections !== undefined && (!Number.isInteger(account.maxConnections) || account.maxConnections < 0)) {
     throw new AccountError('max-connections must be a positive whole number');
   }
