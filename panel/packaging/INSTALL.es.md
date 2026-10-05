@@ -65,6 +65,41 @@ Gestión: `systemctl status ncam`, `journalctl -u ncam -f`. Los ficheros
 `ncam.conf`, `ncam.user`, `ncam.server`… se editan desde la pestaña *Config*
 del panel.
 
+## Qué instalar según tu montaje
+
+| Quiero… | Comando |
+| --- | --- |
+| **Proxy delante, NCam con los lectores** (lo normal) | `sudo bash install.sh --all --yes` → el panel gestiona **el proxy** |
+| **Solo NCam**, sin proxy | `sudo bash install.sh --only-ncam --yes` → el panel gestiona **NCam** |
+| Solo el panel, contra algo que ya tengo | `sudo bash install.sh --backend ncam --url http://IP:8888 --yes` |
+
+Cambiar de uno a otro después es una línea y no destruye nada:
+
+```bash
+sudo bash panel/packaging/install-ubuntu.sh --backend csp  --url http://127.0.0.1:8082 --yes
+sudo bash panel/packaging/install-ubuntu.sh --backend ncam --url http://127.0.0.1:8888 --yes
+```
+
+## Lectores (tarjetas y líneas) en NCam
+
+Con el proxy delante, **los lectores van siempre en NCam**: el proxy no habla
+con tarjetas ni con servidores remotos, solo le pide a NCam. Para añadir una
+línea remota:
+
+```bash
+sudo bash panel/packaging/install-ubuntu.sh --add-reader "cccam://usuario:clave@servidor.com:12000"
+sudo bash panel/packaging/install-ubuntu.sh --add-reader "newcamd://usuario:clave@10.8.0.5:10000?key=0102030405060708091011121314"
+```
+
+Opciones: `--reader-label NOMBRE` y `--reader-group N` (el grupo debe coincidir
+con el de la cuenta `csp` en `ncam.user`). Escribe el bloque `[reader]` en
+`/etc/ncam/ncam.server` y reinicia NCam; luego lo ves en la pestaña *Readers*
+del panel (con `BACKEND=ncam`) o en `journalctl -u ncam -f`.
+
+Una tarjeta local (lector USB/PCSC) se configura igual pero con
+`protocol = internal|smartreader|…` y `device = /dev/ttyUSB0`; eso se edita
+en la pestaña *Config* → `ncam.server`.
+
 ## Todo en uno
 
 ```bash
@@ -264,6 +299,8 @@ como administrador.
 | `--cache-peers`, `--cache-port` | se une al cluster de cache y activa la pestaña *Cache* |
 | `--credentials` | enseña qué cuentas hay y en qué fichero |
 | `--migrate-users` | saca las cuentas de `proxy.xml` a `users.xml` (para miles de clientes) |
+| `--only-ncam` | panel + NCam, sin proxy |
+| `--add-reader URL` | añade una línea cccam/newcamd a `ncam.server` |
 | `--reset-password [CLAVE]` | nueva contraseña para la cuenta con la que entras al panel |
 | `--add-user NOMBRE [CLAVE]` | alta de un cliente |
 | `--ncam-port/-user/-pass` | ajustes del webif de NCam que se crea |

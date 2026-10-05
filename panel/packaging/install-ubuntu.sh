@@ -23,6 +23,10 @@ CONF_DIR=/etc/$PKG
 CONF=$CONF_DIR/panel.env
 INSTALL_NCAM=0
 INSTALL_CSP=0
+READER_URL=""
+READER_LABEL=""
+READER_GROUP=""
+
 ALL_IN_ONE=0
 CACHE_PEERS_HINT=""
 CACHE_NODE_PORT=""
@@ -81,6 +85,8 @@ Usage: sudo bash install-ubuntu.sh [options]
   --no-nginx                 never touch nginx
   --all                      everything in one go: panel + NCam + CardServProxy
                              + cache peer, wired together and ready to use
+                             (the panel then manages the proxy)
+  --only-ncam                panel + NCam, no proxy: the panel manages NCam
   --install-ncam             also build and install NCam itself (from
                              vendor/ncam, GPL-3) as the ncam.service unit, with
                              its web interface enabled, and point the panel at it
@@ -114,6 +120,10 @@ Usage: sudo bash install-ubuntu.sh [options]
   --reset-password [PASS]    give the panel admin account a new password
                              (random when PASS is omitted)
   --add-user NAME [PASS]     add a client account (CSP proxy.xml or ncam.user)
+  --add-reader URL           add a card source to ncam.server, e.g.
+                             cccam://user:pass@host:12000 or
+                             newcamd://user:pass@host:10000?key=0102...14
+                             (--reader-label NAME, --reader-group N)
   --uninstall                stop and remove the package (keeps the config)
   --purge                    remove everything, including /etc/csp-panel
   -h, --help                 this text
@@ -141,6 +151,10 @@ while [ $# -gt 0 ]; do
     --node-from)   NODE_FROM="${2:?}"; shift 2 ;;
     --no-nginx)    WANT_NGINX=no; shift ;;
     --all)         ALL_IN_ONE=1; INSTALL_NCAM=1; INSTALL_CSP=1; shift ;;
+    --only-ncam)   INSTALL_NCAM=1; INSTALL_CSP=0; BACKEND=ncam; shift ;;
+    --add-reader)  ACTION=addreader; READER_URL="${2:?--add-reader needs a url like cccam://user:pass@host:port}"; shift 2 ;;
+    --reader-label) READER_LABEL="${2:?}"; shift 2 ;;
+    --reader-group) READER_GROUP="${2:?}"; shift 2 ;;
     --install-ncam) INSTALL_NCAM=1; shift ;;
     --ncam-port)   NCAM_PORT="${2:?}"; shift 2 ;;
     --ncam-user)   NCAM_USER="${2:?}"; shift 2 ;;
@@ -434,9 +448,86 @@ PY
   ok "the panel writes that file directly and runs update-users: no more proxy reloads"
 }
 
+# ---------------------------------------------------------------- readers ---
+# NCam is where the cards live: local readers, or remote cccam/newcamd lines.
+# The proxy never talks to them directly, it only asks NCam.
+add_reader() {
+  local conf=/etc/ncam/ncam.server
+  [ -f /etc/ncam/ncam.conf ] || die "no /etc/ncam/ncam.conf: install NCam first (--install-ncam)"
+  [ -f "$conf" ] || printf '# card sources\n' > "$conf"
+
+  python3 - "$conf" "$READER_URL" "${READER_LABEL:-}" "${READER_GROUP:-1}" <<'PY'
+import re, sys
+from urllib.parse import urlparse, parse_qs, unquote
+
+path, url, label, group = sys.argv[1:5]
+u = urlparse(url)
+proto = (u.scheme or '').lower()
+if proto in ('cccam', 'cccam2', 'cccam3'):
+    proto = 'cccam'
+elif proto in ('newcamd', 'newcamd525'):
+    proto = 'newcamd'
+else:
+    sys.exit(f"protocol '{u.scheme}' is not supported here; use cccam:// or newcamd://")
+
+if not u.hostname or not u.port:
+    sys.exit('the url needs host and port, e.g. cccam://user:pass@host:12000')
+
+user = unquote(u.username or '')
+pwd = unquote(u.password or '')
+if not user or not pwd:
+    sys.exit('the url needs user and password, e.g. cccam://user:pass@host:12000')
+
+qs = parse_qs(u.query)
+key = (qs.get('key') or [''])[0]
+if proto == 'newcamd' and not key:
+    # Every newcamd line has a des key; this is the one everybody starts from.
+    key = '0102030405060708091011121314'
+
+label = label or re.sub(r'[^A-Za-z0-9_.-]', '_', f'{u.hostname}_{u.port}')
+
+text = open(path).read()
+if re.search(rf'^\s*label\s*=\s*{re.escape(label)}\s*$', text, re.M):
+    sys.exit(f'a reader called "{label}" already exists in {path}')
+
+lines = [
+    '[reader]',
+    f'label                         = {label}',
+    f'protocol                      = {proto}',
+    f'device                        = {u.hostname},{u.port}',
+    f'user                          = {user}',
+    f'password                      = {pwd}',
+]
+if proto == 'newcamd':
+    lines.append(f'key                           = {key}')
+else:
+    lines += [
+        'cccversion                    = 2.3.0',
+        'cccmaxhops                    = 10',
+        'cccwantemu                    = 0',
+    ]
+lines += [
+    f'group                         = {group}',
+    'inactivitytimeout             = 30',
+    'reconnecttimeout              = 30',
+    'audisabled                    = 1',
+]
+
+open(path, 'w').write(text.rstrip('\n') + '\n\n' + '\n'.join(lines) + '\n')
+print(label, proto, f'{u.hostname}:{u.port}')
+PY
+  local added=$?
+  [ $added -eq 0 ] || exit $added
+  chmod 600 "$conf"
+  systemd_running && systemctl restart ncam.service 2>/dev/null || true
+  ok "reader added to $conf (NCam restarted)"
+  ok "check it in the panel: Readers tab, or journalctl -u ncam -f"
+}
+
 case "$ACTION" in
   credentials) show_credentials; exit 0 ;;
   migrate)     migrate_users;   exit 0 ;;
+  addreader)   add_reader;      exit 0 ;;
   reset)       reset_password;  exit 0 ;;
   adduser)     add_user;        exit 0 ;;
 esac
