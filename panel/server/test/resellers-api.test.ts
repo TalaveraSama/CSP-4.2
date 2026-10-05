@@ -148,6 +148,70 @@ test('a reseller never sees, touches or deletes what is not his', async () => {
   }
 });
 
+test('a reseller only sees his own customers connected', async () => {
+  writeFileSync(userFile, '# clients\n');
+  const store = new ResellerStore(join(dir, 'resellers4.json'));
+  const juan = store.create('juan', 'juanpw', 5);
+  store.claim('suyo', juan.id);
+  store.claim('ajeno', 'admin');
+
+  // The backend reports both sessions; the panel must hand over only one.
+  const withSessions: ProxyBackend = {
+    ...backend,
+    async snapshot() {
+      return {
+        profiles: [],
+        connectors: [],
+        plugins: [],
+        events: [],
+        fileLog: [],
+        warnings: [],
+        services: [],
+        seen: [{ name: 'suyo' }, { name: 'ajeno' }],
+        failures: [],
+        commandGroups: [],
+        optionLists: {},
+        proxy: { name: 'NCam', version: '1', started: '', duration: '', connectors: 0, sessions: 2 },
+        users: {
+          count: 2,
+          loginFailures: 3,
+          sessions: [
+            { user: 'suyo', host: '10.0.0.1', active: true },
+            { user: 'ajeno', host: '10.0.0.2', active: true },
+          ],
+        },
+      } as never;
+    },
+  };
+
+  const app = express();
+  app.use(express.json());
+  app.use(cookieParser());
+  app.use('/api', createApiRouter(withSessions, new SessionStore(3_600_000), 'never', store));
+  const listener = app.listen(0);
+
+  try {
+    const juanClient = await client(listener, 'juan', 'juanpw');
+    const body = (await juanClient.call('/sessions')).body as {
+      users: { sessions: { user: string }[]; count: number; loginFailures: number };
+      proxy?: unknown;
+      connectors: unknown[];
+    };
+    assert.deepEqual(body.users.sessions.map((s) => s.user), ['suyo']);
+    assert.equal(body.users.count, 1);
+    assert.equal(body.users.loginFailures, 0, 'not his business');
+    assert.equal(body.proxy, undefined, 'the operator stats are not his business either');
+    assert.deepEqual(body.connectors, []);
+
+    // And the tabs he does not have are blocked at the API too.
+    for (const path of ['/overview', '/connectors', '/events', '/channels', '/cache', '/commands']) {
+      assert.equal((await juanClient.call(path)).status, 403, path);
+    }
+  } finally {
+    await new Promise((r) => listener.close(r));
+  }
+});
+
 test('the administrator sees everything and pays nothing', async () => {
   writeFileSync(userFile, '# clients\n');
   const store = new ResellerStore(join(dir, 'resellers3.json'));

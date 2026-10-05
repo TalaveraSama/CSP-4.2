@@ -9,7 +9,8 @@ import { MockCspClient } from './csp/mock.js';
 import { NCAM_FLAVOUR, OSCAM_FLAVOUR, OscamClient } from './oscam/client.js';
 import { HttpOscamTransport } from './oscam/http.js';
 import { MockOscamTransport } from './oscam/mock.js';
-import { createApiRouter } from './routes.js';
+import { createApiRouter, serviceCredentials } from './routes.js';
+import { startExpirySweeper } from './expiry.js';
 import { SessionStore } from './sessions.js';
 import { ResellerStore } from './resellers.js';
 
@@ -59,6 +60,17 @@ app.get('/healthz', (_req, res) => {
 });
 
 app.use('/api', createApiRouter(backend, sessions, config.secureCookies, resellers));
+
+// Lines that ran out of credit have to stop working, or credits mean nothing.
+if (resellers) {
+  startExpirySweeper({
+    backend,
+    resellers,
+    auth: () => serviceCredentials.current,
+    intervalMs: Number(process.env.EXPIRY_SWEEP_MS) || 10 * 60_000,
+    log: (message) => console.log(`[csp-panel] expiry: ${message}`),
+  });
+}
 
 // Serve the built SPA when it exists (single-artifact deployment).
 const webRoot = config.webRoot;

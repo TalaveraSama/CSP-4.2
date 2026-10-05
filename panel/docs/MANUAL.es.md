@@ -213,7 +213,12 @@ créditos, les cambias la contraseña, los habilitas o deshabilitas y ves el
 **historial de movimientos**. Si borras un reseller, sus clientes **no se
 cortan**: pasan a ser tuyos.
 
-La caducidad la lleva el panel en `/etc/csp-panel/resellers.json`, así que
+Las líneas caducadas **se cortan solas**: cada 10 minutos el panel repasa las
+fechas y deshabilita (nunca borra) las que han vencido, así que renovar las
+devuelve a la vida con sus ajustes intactos. El intervalo se cambia con
+`EXPIRY_SWEEP_MS` en `panel.env`.
+
+La caducidad la lleva el panel en `/var/lib/csp-panel/resellers.json`, así que
 funciona igual aunque el backend no tenga campo de expiración; en NCam además
 se escribe `expdate` en la cuenta.
 
@@ -349,7 +354,7 @@ sudo tail -f /opt/cardservproxy/log/cardservproxy.log
 | --- | --- |
 | `/etc/csp-panel/panel.env` | configuración del panel |
 | `/etc/csp-panel/cache.env` | configuración del peer de cache |
-| `/etc/csp-panel/resellers.json` | resellers, créditos, dueño y caducidad de cada cliente |
+| `/var/lib/csp-panel/resellers.json` | resellers, créditos, dueño y caducidad de cada cliente |
 | `/etc/ncam/ncam.conf` | NCam: webif, cache, puertos |
 | `/etc/ncam/ncam.user` | cuentas de NCam (con proxy, solo `csp`) |
 | `/etc/ncam/ncam.server` | lectores: tarjeta, cccam, newcamd |
@@ -369,6 +374,9 @@ sudo tail -f /opt/cardservproxy/log/cardservproxy.log
 | `SECURE_COOKIES`, `TRUST_PROXY` | detrás de nginx/TLS |
 | `INSECURE_TLS=1` | aceptar certificados autofirmados del softcam |
 | `SESSION_TTL_MS` | duración de la sesión (8 h) |
+| `BACKEND_USER` / `BACKEND_PASS` | credenciales del softcam que el panel usa en nombre de los resellers |
+| `EXPIRY_SWEEP_MS` | cada cuánto se cortan las líneas vencidas (10 min) |
+| `RESELLERS_FILE` | ruta del almacén de resellers |
 | `NODE_BIN` | forzar un intérprete de Node concreto |
 
 ### `cache.env`

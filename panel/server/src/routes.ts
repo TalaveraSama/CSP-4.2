@@ -1,22 +1,16 @@
 import { Router, type NextFunction, type Request, type Response } from 'express';
-import { readFile, writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
-
 import { ResellerError, ResellerStore, addMonths, isoDate } from './resellers.js';
+import { AccountError, type Account } from './accounts.js';
 import {
-  AccountError,
-  findAccount,
-  findIniAccount,
-  listAccounts,
-  listIniAccounts,
-  removeAccount,
-  removeIniAccount,
-  upsertAccount,
-  upsertIniAccount,
-  type Account,
-} from './accounts.js';
+  findOne,
+  readAccounts,
+  removeFrom,
+  resolveAccountStore,
+  upsert,
+  type AccountStore,
+} from './account-store.js';
 import { BackendError, type ProxyBackend } from './backend.js';
-import type { StatusCommand } from './csp/types.js';
+import type { StatusCommand, StatusSnapshot, UserSession } from './csp/types.js';
 import { COOKIE_NAME, type PanelSession, type SessionStore } from './sessions.js';
 import { PANEL_VERSION } from './version.js';
 
@@ -55,6 +49,9 @@ function wantsSecure(mode: SecureCookieMode, req: Request): boolean {
   return req.secure || (req.headers['x-forwarded-proto'] ?? '').toString().split(',')[0]?.trim() === 'https';
 }
 
+/** Credentials the panel uses on its own behalf; see below. */
+export const serviceCredentials: { current?: { user: string; password: string } } = {};
+
 export function createApiRouter(
   backend: ProxyBackend,
   sessions: SessionStore,
@@ -66,10 +63,11 @@ export function createApiRouter(
    * the softcam. Set BACKEND_USER/BACKEND_PASS in panel.env; otherwise the
    * last successful admin login is reused, which works until a restart.
    */
-  let serviceAuth: { user: string; password: string } | undefined =
+  serviceCredentials.current ??=
     process.env.BACKEND_USER && process.env.BACKEND_PASS
       ? { user: process.env.BACKEND_USER, password: process.env.BACKEND_PASS }
       : undefined;
+  const serviceAuth = () => serviceCredentials.current;
   const api = Router();
 
   const requireSession = (req: Request, res: Response, next: NextFunction) => {
@@ -124,7 +122,7 @@ export function createApiRouter(
       // Resellers are the panel's own users, so they are checked here first;
       // everybody else is still authenticated by the softcam itself.
       const reseller = resellers?.login(user, password);
-      if (reseller && !serviceAuth) {
+      if (reseller && !serviceAuth()) {
         return res.status(503).json({
           error:
             'resellers cannot be served yet: set BACKEND_USER and BACKEND_PASS in /etc/csp-panel/panel.env ' +
@@ -136,7 +134,7 @@ export function createApiRouter(
           { user: reseller.user, admin: false, superUser: false },
           // A reseller has no credentials on the backend: the panel talks to
           // it with its own service account, configured in panel.env.
-          { user: serviceAuth!.user, password: serviceAuth!.password },
+          { user: serviceAuth()!.user, password: serviceAuth()!.password },
         );
         session.role = 'reseller';
         session.resellerId = reseller.id;
@@ -156,7 +154,7 @@ export function createApiRouter(
       session.role = 'admin';
       // Remember a working admin login so reseller sessions can reach the
       // backend without having credentials of their own.
-      serviceAuth = { user, password };
+      serviceCredentials.current ??= { user, password };
       res.cookie(COOKIE_NAME, session.id, {
         httpOnly: true,
         sameSite: 'lax',
@@ -187,6 +185,15 @@ export function createApiRouter(
 
   api.use(requireSession);
 
+  // A reseller only has the Accounts and Sessions tabs; everything else is
+  // the operator's business. Blocking it here too means a crafted request
+  // cannot read what the interface does not show him.
+  const resellerAllowed = /^\/(accounts|sessions|auth|meta)(\/|$)/;
+  api.use((req, res, next) => {
+    if (req.session?.role !== 'reseller' || resellerAllowed.test(req.path)) return next();
+    res.status(403).json({ error: 'not available to resellers' });
+  });
+
   /* ------------------------------------------------------------ queries */
 
   api.get(
@@ -215,6 +222,35 @@ export function createApiRouter(
     }),
   );
 
+  /**
+   * A reseller may only see his own customers connected, never the rest of
+   * the operator's traffic.
+   */
+  const scopeToReseller = (req: Request, data: StatusSnapshot): StatusSnapshot => {
+    if (req.session?.role !== 'reseller' || !resellers) return data;
+    const mine = new Set(resellers.clientsOf(req.session.resellerId!));
+    const users = data.users;
+    return {
+      ...data,
+      proxy: undefined,
+      connectors: [],
+      profiles: [],
+      events: [],
+      fileLog: [],
+      warnings: [],
+      seen: (data.seen ?? []).filter((entry) => mine.has(entry.name)),
+      failures: [],
+      users: users
+        ? {
+            ...users,
+            sessions: users.sessions.filter((s: UserSession) => mine.has(s.user)),
+            count: users.sessions.filter((s: UserSession) => mine.has(s.user)).length,
+            loginFailures: 0,
+          }
+        : users,
+    };
+  };
+
   api.get(
     '/sessions',
     wrap(async (req, res) => {
@@ -226,7 +262,7 @@ export function createApiRouter(
           params: { 'hide-inactive': qs(req, 'hideInactive') ?? 'false', profile: qs(req, 'profile') },
         },
       ]);
-      res.json(data);
+      res.json(scopeToReseller(req, data));
     }),
   );
 
@@ -346,82 +382,7 @@ export function createApiRouter(
    *    thousands of accounts.
    *  - OSCam/NCam: [account] blocks in ncam.user, through the webif file API.
    */
-  interface AccountStore {
-    kind: 'xml' | 'ini';
-    /** Human readable origin, shown in the UI. */
-    source: string;
-    writable: boolean;
-    read(): Promise<string>;
-    write(content: string): Promise<void>;
-  }
-
-  const localUserFile = (xml: string): string | undefined => {
-    if (!/<user-manager[^>]*XmlUserManager/i.test(xml)) return undefined;
-    const url = /<user-file-url>\s*([^<]+?)\s*<\/user-file-url>/i.exec(xml)?.[1];
-    if (!url?.startsWith('file:')) return undefined; // http/ftp sources are not ours to edit
-    const path = url.slice('file:'.length);
-    return path.startsWith('/') ? path : resolve(process.cwd(), path);
-  };
-
-  const accountStore = async (req: Request): Promise<AccountStore> => {
-    const auth = req.session!.auth;
-
-    if (backend.info.kind === 'csp') {
-      const config = await backend.fetchConfig(auth);
-      const file = localUserFile(config.content);
-      if (file) {
-        return {
-          kind: 'xml',
-          source: file,
-          writable: true,
-          read: async () => {
-            try {
-              return await readFile(file, 'utf8');
-            } catch (err) {
-              if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-                return '<?xml version="1.0" encoding="UTF-8"?>\n<user-manager>\n  <auth-config>\n  </auth-config>\n</user-manager>\n';
-              }
-              throw new AccountError(`cannot read ${file}: ${(err as Error).message}`, 502);
-            }
-          },
-          write: async (content) => {
-            try {
-              await writeFile(file, content, { mode: 0o640 });
-            } catch (err) {
-              throw new AccountError(`cannot write ${file}: ${(err as Error).message}`, 502);
-            }
-            // Tell the proxy to pick it up now instead of at the next poll.
-            await backend.control(auth, 'update-users', {}).catch(() => undefined);
-          },
-        };
-      }
-      return {
-        kind: 'xml',
-        source: config.name,
-        writable: config.writable,
-        read: async () => config.content,
-        write: async (content) => {
-          const result = await backend.saveConfig(auth, content);
-          if (!result.ok) throw new AccountError(result.message || 'the proxy refused the new config', 400);
-        },
-      };
-    }
-
-    // OSCam and NCam: the accounts file of the running softcam.
-    const file = backend.info.configFiles.find((f) => f.endsWith('.user'));
-    if (!file) throw new AccountError('this backend has no accounts file', 501);
-    const current = await backend.fetchConfig(auth, file);
-    return {
-      kind: 'ini',
-      source: file,
-      writable: current.writable,
-      read: async () => current.content,
-      write: async (content) => {
-        const result = await backend.saveConfig(auth, content, file);
-        if (!result.ok) throw new AccountError(result.message || `${backend.info.labels.product} refused the file`, 400);
-      },
-    };
-  };
+  const accountStore = (req: Request) => resolveAccountStore(backend, req.session!.auth);
 
   /* --- reseller scoping ---------------------------------------------------
    * A reseller may only see and touch the clients he owns, and every line he
@@ -455,16 +416,6 @@ export function createApiRouter(
     return value;
   };
 
-  const readAccounts = (store: AccountStore, text: string) =>
-    store.kind === 'xml' ? listAccounts(text) : listIniAccounts(text);
-  const findOne = (store: AccountStore, text: string, name: string) =>
-    store.kind === 'xml' ? findAccount(text, name) : findIniAccount(text, name);
-  const upsert = (store: AccountStore, text: string, account: Account, create: boolean) =>
-    store.kind === 'xml'
-      ? upsertAccount(text, account, { create })
-      : upsertIniAccount(text, account, { create });
-  const remove = (store: AccountStore, text: string, name: string) =>
-    store.kind === 'xml' ? removeAccount(text, name) : removeIniAccount(text, name);
 
   api.get(
     '/accounts',
@@ -581,7 +532,7 @@ export function createApiRouter(
     wrap(async (req, res) => {
       assertOwner(req, req.params.name!);
       const store = await accountStore(req);
-      await store.write(remove(store, await store.read(), req.params.name!));
+      await store.write(removeFrom(store, await store.read(), req.params.name!));
       // No refund: otherwise credits could be recycled by deleting lines.
       resellers?.release(req.params.name!);
       res.json({ ok: true, message: `account ${req.params.name} removed` });
