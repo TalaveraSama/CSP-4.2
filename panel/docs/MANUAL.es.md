@@ -377,6 +377,8 @@ mirar la interfaz sin tener nada instalado.
 | Todos los ficheros salían como solo lectura | el webif rellena el flag `writable` antes de calcularlo. El panel usa `httpreadonly` |
 | El panel aparecía vacío con un softcam recién instalado | `userstats` responde `Invalid client` mientras no hay cuentas; ya no tumba el resto |
 | `curl: (28)` contra `deb.nodesource.com` | red bloqueada: `--node-from tarball`, `NODE_MIRROR=…`, o `--node-from skip` |
+| `Config file version '1.0' does not match application version '0.9.0'` | el atributo `ver` de `<cardserv-proxy>` tiene que ser exactamente `0.9.0`: `sudo sed -i 's/ver="1.0"/ver="0.9.0"/' /etc/cardservproxy/proxy.xml` |
+| Servicio `active` pero sin puertos | arranque a medias; `--status` enseña el final de su log |
 | Cuenta creada que el proxy ignora | tiene que estar dentro de `<auth-config>`; el panel y `--add-user` ya lo hacen |
 
 ---

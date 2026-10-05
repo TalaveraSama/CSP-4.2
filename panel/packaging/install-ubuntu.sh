@@ -552,9 +552,13 @@ show_status() {
     case "$state" in
       active)  printf '  %-16s %s\n' "$svc" "${GREEN:-}$state${OFF}" ;;
       *)       printf '  %-16s %s\n' "$svc" "${YELLOW}$state${OFF}"
-               systemd_running && journalctl -u "$svc" -n 6 --no-pager 2>/dev/null \
-                 | grep -vE 'Scheduled restart|Stopped |Started |Consumed|Main process exited|Failed with result' \
-                 | tail -4 | sed 's/^/      /' ;;
+               if systemd_running; then
+                 # Every pipe here has to tolerate "matched nothing": under
+                 # set -e a failing pipeline would kill the whole report.
+                 journalctl -u "$svc" -n 12 --no-pager 2>/dev/null \
+                   | grep -vE 'Scheduled restart|Stopped |Started |Consumed|Main process exited|Failed with result' \
+                   | tail -4 | sed 's/^/      /' || true
+               fi ;;
     esac
   done
 
@@ -565,12 +569,13 @@ show_status() {
     name="${pair%%:*}"; port="${pair##*:}"
     systemd_running || break
     [ "$(systemctl is-active "$name" 2>/dev/null)" = active ] || continue
-    ss -lnt 2>/dev/null | grep -q ":${port}\b" && continue
+    if ss -lnt 2>/dev/null | grep -q ":${port}\b"; then continue; fi
     echo
     warn "$name is running but nothing is listening on ${port}; last lines of its log:"
-    journalctl -u "$name" -n 12 --no-pager 2>/dev/null | tail -8 | sed 's/^/      /'
-    [ "$name" = cardservproxy ] && [ -f /opt/cardservproxy/log/cardservproxy.log ] && \
-      tail -8 /opt/cardservproxy/log/cardservproxy.log | sed 's/^/      /'
+    journalctl -u "$name" -n 12 --no-pager 2>/dev/null | tail -8 | sed 's/^/      /' || true
+    if [ "$name" = cardservproxy ] && [ -f /opt/cardservproxy/log/cardservproxy.log ]; then
+      tail -8 /opt/cardservproxy/log/cardservproxy.log | sed 's/^/      /' || true
+    fi
   done
 
   echo
@@ -625,9 +630,17 @@ show_status() {
     [ -f /opt/cardservproxy/lib/cardservproxy.jar ] \
       && printf '  %-16s %s\n' "jar" "$(ls -lh /opt/cardservproxy/lib/cardservproxy.jar | awk '{print $5, $6, $7, $8}')" \
       || warn "no jar in /opt/cardservproxy/lib: build it with --install-csp"
-    [ -f /etc/cardservproxy/proxy.xml ] \
-      && printf '  %-16s %s\n' "proxy.xml" "caid $(sed -n 's/.*ca-id="\([^"]*\)".*/\1/p' /etc/cardservproxy/proxy.xml | head -1), $(grep -c '<user ' /etc/cardservproxy/proxy.xml) user(s)" \
-      || warn "no /etc/cardservproxy/proxy.xml"
+    if [ -f /etc/cardservproxy/proxy.xml ]; then
+      printf '  %-16s %s\n' "proxy.xml" "caid $(sed -n 's/.*ca-id="\([^"]*\)".*/\1/p' /etc/cardservproxy/proxy.xml | head -1), $(grep -c '<user ' /etc/cardservproxy/proxy.xml) user(s)"
+      local cfgver
+      cfgver="$(sed -n 's/.*<cardserv-proxy[^>]*ver="\([^"]*\)".*/\1/p' /etc/cardservproxy/proxy.xml | head -1)"
+      if [ -n "$cfgver" ] && [ "$cfgver" != 0.9.0 ]; then
+        warn "proxy.xml says ver=\"$cfgver\"; the proxy only accepts ver=\"0.9.0\" and exits otherwise"
+        echo "    sudo sed -i 's/ver=\"$cfgver\"/ver=\"0.9.0\"/' /etc/cardservproxy/proxy.xml"
+      fi
+    else
+      warn "no /etc/cardservproxy/proxy.xml"
+    fi
     [ -f /etc/cardservproxy/users.xml ] \
       && printf '  %-16s %s\n' "users.xml" "$(grep -c '<user ' /etc/cardservproxy/users.xml) client(s)"
   fi
@@ -850,7 +863,8 @@ install_csp() {
   Written by the csp-panel installer. Accounts are managed from the panel
   (Accounts tab), which posts this file back through /cfgHandler.
 -->
-<cardserv-proxy ver="1.0">
+<!-- ver must equal CardServProxy.APP_VERSION or the proxy refuses to start. -->
+<cardserv-proxy ver="0.9.0">
 
   <ca-profiles>
     <profile name="ncam" ca-id="$caid">
