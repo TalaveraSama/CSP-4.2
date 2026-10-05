@@ -16,7 +16,9 @@ checkout and the exact revision that was tested stays pinned here.
 | Date | 2026-06-07T00:57:09+03:00 |
 | License | GPL-3.0 (see `ncam/COPYING`) |
 
-The sources are **unmodified**: no patches are carried here. NCam remains the
+The sources are **unmodified**: no patches are carried here. (One latin-1
+character inside a comment of `module-dvbapi-coolapi.c` was re-encoded to UTF-8
+on import; it is a Coolstream-only comment with no effect on the build.) NCam remains the
 work of its authors and keeps its own licence; vendoring it does not relicense
 it, and the CSP code in the rest of the repository is unaffected.
 
