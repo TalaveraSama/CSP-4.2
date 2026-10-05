@@ -1,3 +1,21 @@
+csp-panel (0.6.0) unstable; urgency=medium
+
+  * The java proxy is out of the default install. The recommended stack is
+    now the panel plus NCam, with NCam attending your clients over newcamd and
+    cccam; CardServProxy is optional behind --install-csp / --all, and an
+    existing one is retired with --remove-csp (the panel moves itself back to
+    NCam, nothing is deleted).
+  * install.sh installs panel + NCam and nothing else; install-panel.sh is the
+    panel-only installer, for a softcam that already exists somewhere.
+  * install-ubuntu.sh: --with-ncam, --no-ncam, --no-clients, --no-proxy, and a
+    guided install that asks about NCam instead of the proxy. On a fresh NCam
+    the installer now opens the client ports itself (newcamd 10000, cccam
+    12000) — an ncam.conf that was already there is still never touched.
+  * --status lists the ports of the no-proxy topology (newcamd/cccam in NCam)
+    and the panel reports which stack it installed.
+
+ -- CSP Panel contributors <noreply@example.com>  Mon, 05 Oct 2026 09:30:00 +0000
+
 csp-panel (0.5.0) unstable; urgency=medium
 
   * Resellers: the panel now has users of its own. A reseller logs in with

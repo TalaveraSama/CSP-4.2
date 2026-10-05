@@ -37,7 +37,7 @@ or build the Debian package yourself:
 
 ```bash
 cd panel && bash packaging/build-deb.sh
-sudo apt install ./build/csp-panel_0.3.0_all.deb
+sudo apt install ./build/csp-panel_0.6.0_all.deb
 sudoedit /etc/csp-panel/panel.env && sudo systemctl start csp-panel
 ```
 
@@ -56,10 +56,19 @@ sudo bash panel/packaging/install-ubuntu.sh --install-ncam --backend ncam --yes
 
 The Java proxy is in this repository too (`src/`, `plugins/`), and
 `panel/packaging/build-csp.sh` builds it with plain javac — no Ant, no
-`source=1.4`, no `rmic`. One command sets up the whole stack:
+`source=1.4`, no `rmic`. Since 0.6.0 it is **optional and not installed by
+default**: NCam attends your clients itself. The two one-command installs are:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TalaveraSama/CSP-4.2/arena/01a0f2ba-csp-4-2/install.sh | sudo bash
+# panel + NCam (NCam opens newcamd 10000 / cccam 12000 for your clients)
+curl -fsSL https://raw.githubusercontent.com/TalaveraSama/CSP-4.2/v0.6.0/install.sh | sudo bash
+
+# panel only, against a softcam you already have (installs no NCam)
+curl -fsSL https://raw.githubusercontent.com/TalaveraSama/CSP-4.2/v0.6.0/install-panel.sh \
+     | sudo bash -s -- --backend ncam --url http://192.168.1.10:8888
+
+# with the proxy in front (old topology, still supported)
+sudo bash install.sh --all --yes
 ```
 
 The old `web/` tree is left untouched, so existing deployments keep working.

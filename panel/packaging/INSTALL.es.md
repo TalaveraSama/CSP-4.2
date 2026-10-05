@@ -5,28 +5,55 @@
 Un solo comando deja el panel instalado como servicio del sistema, sin Java,
 sin Tomcat y sin tocar nada de la instalación legacy.
 
+## Dos instaladores (y ninguno monta el proxy java)
+
+Desde la 0.6.0 **el proxy CardServProxy no forma parte de la instalación por
+defecto**: NCam es quien atiende a tus clientes (newcamd/cccam) y el panel lo
+gestiona. El proxy sigue disponible para quien lo quiera delante, pero hay que
+pedirlo (`--install-csp`, `--all`).
+
+| Quiero… | Comando |
+| --- | --- |
+| **Panel + NCam** (lo recomendado: NCam abre los puertos de tus clientes) | `curl -fsSL https://raw.githubusercontent.com/TalaveraSama/CSP-4.2/v0.6.0/install.sh \| sudo bash` |
+| **Solo el panel**, contra un softcam que ya tengo | `curl -fsSL https://raw.githubusercontent.com/TalaveraSama/CSP-4.2/v0.6.0/install-panel.sh \| sudo bash -s -- --backend ncam --url http://192.168.1.10:8888` |
+
+Los dos son envoltorios de `panel/packaging/install-ubuntu.sh`: le reenvían
+cualquier opción que les pases (`--port`, `--listen 0.0.0.0`, `--domain`,
+`--yes`…). `install.sh` equivale a `--only-ncam`; `install-panel.sh` equivale a
+`--no-ncam`.
+
+Desde un clon del repositorio:
+
 ```bash
 git clone https://github.com/TalaveraSama/CSP-4.2.git
 cd CSP-4.2
+sudo bash install.sh                 # panel + NCam, sin proxy
+sudo bash install-panel.sh --backend oscam --url http://127.0.0.1:8888
+```
+
+O el instalador a pelo, que pregunta lo que necesite:
+
+```bash
 sudo bash panel/packaging/install-ubuntu.sh
 ```
 
-El instalador va preguntando (backend, URL del softcam, puerto, dominio) y
-acepta los valores por defecto con Enter. Para desatendido:
+El instalador va preguntando (¿instalar NCam?, backend, URL del softcam,
+puerto, dominio) y acepta los valores por defecto con Enter. Fíjate en que
+**no pregunta por el proxy**: eso es `--install-csp`. Para desatendido:
 
 ```bash
-# OSCam en la misma máquina, publicado en un subdominio
-sudo bash panel/packaging/install-ubuntu.sh \
+# Solo el panel, contra un OSCam que ya tengo, publicado en un subdominio
+sudo bash panel/packaging/install-ubuntu.sh --no-ncam \
      --backend oscam --url http://127.0.0.1:8888 \
      --domain panel.midominio.com --yes
 
 # NCam (fork de OSCam) — local o en otra máquina
-sudo bash panel/packaging/install-ubuntu.sh \
+sudo bash panel/packaging/install-ubuntu.sh --no-ncam \
      --backend ncam --url http://192.168.1.10:8888 --yes
 
-# CardServProxy
-sudo bash panel/packaging/install-ubuntu.sh \
-     --backend csp --url http://127.0.0.1:8082 --yes
+# CardServProxy (opcional: con --install-csp se monta y se cablea a NCam)
+sudo bash panel/packaging/install-ubuntu.sh --backend csp \
+     --url http://127.0.0.1:8082 --yes
 
 # Solo probarlo, con datos de demo y sin softcam
 sudo bash panel/packaging/install-ubuntu.sh --backend mock --yes
@@ -35,17 +62,18 @@ sudo bash panel/packaging/install-ubuntu.sh --backend mock --yes
 Sin clonar nada (descarga las fuentes él solo):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TalaveraSama/CSP-4.2/arena/01a0f2ba-csp-4-2/panel/packaging/install-ubuntu.sh \
-  | sudo bash -s -- --backend oscam --url http://127.0.0.1:8888 --yes
+curl -fsSL https://raw.githubusercontent.com/TalaveraSama/CSP-4.2/v0.6.0/panel/packaging/install-ubuntu.sh \
+  | sudo bash -s -- --no-ncam --backend oscam --url http://127.0.0.1:8888 --yes
 ```
 
-## Instalar también NCam (softcam + panel de una vez)
+## Instalar NCam (softcam + panel de una vez)
 
 El repositorio trae NCam en [`vendor/ncam`](../../vendor/README.md) (copia de
-`fairbird/NCam`, GPL-3). Con `--install-ncam` el instalador lo compila y lo
-deja funcionando:
+`fairbird/NCam`, GPL-3). Es lo que hace `install.sh` sin argumentos, o el
+instalador con `--install-ncam` / `--with-ncam`:
 
 ```bash
+sudo bash install.sh                                 # panel + NCam, sin proxy
 sudo bash panel/packaging/install-ubuntu.sh --install-ncam --backend ncam --yes
 ```
 
@@ -58,10 +86,19 @@ Eso hace, además de instalar el panel:
    usuario `admin` y **contraseña aleatoria** (te la imprime al terminar), con
    `httpallowed=127.0.0.1,::1`,
 4. instala y arranca `ncam.service`,
-5. configura el panel con `BACKEND=ncam` y `NCAM_URL=http://127.0.0.1:8888`.
+5. **abre los puertos de tus clientes** en ese `ncam.conf` nuevo: newcamd
+   `10000@<caid>:000000` y cccam `12000`, con la key newcamd por defecto
+   (`--caid 1810` para el CAID de tu proveedor; `--no-clients` para no
+   tocarlos, `--newcamd-port`/`--cccam-port`/`--deskey` para cambiarlos),
+6. configura el panel con `BACKEND=ncam` y `NCAM_URL=http://127.0.0.1:8888`.
+
+Las líneas N:/C: para tus clientes te las imprime al terminar; las cuentas se
+crean en la pestaña *Accounts* del panel o con `--add-user NOMBRE [CLAVE]`.
 
 Opciones: `--ncam-port`, `--ncam-user`, `--ncam-pass`. Si ya tenías
-`/etc/ncam/ncam.conf` **no se toca**: se reutiliza el puerto que ya tuvieras.
+`/etc/ncam/ncam.conf` **no se toca** — ni el puerto ni los puertos de cliente:
+se reutiliza lo que ya tuvieras, y para abrírselos a tus clientes ejecutas
+`--serve-clients --caid <el-tuyo>` a mano.
 
 Gestión: `systemctl status ncam`, `journalctl -u ncam -f`. Los ficheros
 `ncam.conf`, `ncam.user`, `ncam.server`… se editan desde la pestaña *Config*
@@ -71,16 +108,24 @@ del panel.
 
 | Quiero… | Comando |
 | --- | --- |
-| **Proxy delante, NCam con los lectores** (lo normal) | `sudo bash install.sh --all --yes` → el panel gestiona **el proxy** |
-| **Solo NCam**, sin proxy | `sudo bash install.sh --only-ncam --yes` → el panel gestiona **NCam** |
-| Solo el panel, contra algo que ya tengo | `sudo bash install.sh --backend ncam --url http://IP:8888 --yes` |
+| **NCam atendiendo a mis clientes** (lo recomendado, sin proxy) | `sudo bash install.sh` → el panel gestiona **NCam** |
+| **Solo el panel**, contra un softcam que ya tengo | `sudo bash install-panel.sh --backend ncam --url http://IP:8888` |
+| **El proxy java delante** (montaje antiguo, opcional) | `sudo bash install.sh --all --yes` → el panel gestiona **el proxy** |
+| Probar el panel sin softcam | `sudo bash install.sh --backend mock --yes` |
 
 Cambiar de uno a otro después es una línea y no destruye nada:
 
 ```bash
-sudo bash panel/packaging/install-ubuntu.sh --backend csp  --url http://127.0.0.1:8082 --yes
-sudo bash panel/packaging/install-ubuntu.sh --backend ncam --url http://127.0.0.1:8888 --yes
+# dejar que NCam atienda a los clientes y retirar el proxy (su config se conserva)
+sudo bash panel/packaging/install-ubuntu.sh --serve-clients --caid 1810
+sudo bash panel/packaging/install-ubuntu.sh --remove-csp
+
+# o volver a poner el proxy delante
+sudo bash panel/packaging/install-ubuntu.sh --install-csp --yes
 ```
+
+Volver a ejecutar el instalador de este repo **no instala el proxy** salvo que
+se lo pidas: `--no-proxy` lo deja explícito.
 
 ## Lectores (tarjetas y líneas) en NCam
 
@@ -102,29 +147,38 @@ Una tarjeta local (lector USB/PCSC) se configura igual pero con
 `protocol = internal|smartreader|…` y `device = /dev/ttyUSB0`; eso se edita
 en la pestaña *Config* → `ncam.server`.
 
-## Todo en uno
+## Los instaladores de un comando
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TalaveraSama/CSP-4.2/arena/01a0f2ba-csp-4-2/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/TalaveraSama/CSP-4.2/v0.6.0/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/TalaveraSama/CSP-4.2/v0.6.0/install-panel.sh \
+     | sudo bash -s -- --backend ncam --url http://192.168.1.10:8888
 ```
 
-Eso instala **la pila entera**: panel + NCam + CardServProxy + peer de cache,
-cableados entre sí. Equivale a `install-ubuntu.sh --all --yes`, y cualquier
-opción que le pases al script se reenvía al instalador:
+`install.sh` deja, en una máquina limpia: el panel como servicio, NCam
+compilado de `vendor/ncam` (GPL-3) y —si el `ncam.conf` lo escribió él— los
+puertos newcamd 10000 y cccam 12000 abiertos para tus clientes. Cualquier
+opción se reenvía al instalador:
 
 ```bash
-sudo bash install.sh --all --listen 0.0.0.0 --csp-caid 0x1810 --yes
-sudo bash install.sh --backend mock --yes        # solo mirar el panel
+sudo bash install.sh --listen 0.0.0.0 --caid 1810 --yes   # tu CAID, verlo en la LAN
+sudo bash install.sh --backend mock --yes                 # solo mirar el panel
+sudo bash install.sh --no-clients --yes                   # sin abrir puertos
+sudo bash install.sh --all --yes                          # con el proxy java delante
 ```
 
-Si una pieza no se puede montar (por ejemplo no hay JDK para compilar el
-proxy), **no aborta**: avisa, deja el resto funcionando y el panel apuntando
-al softcam.
+Un `ncam.conf` que ya existía **nunca se toca**: ahí `install.sh` solo compila
+e instala el binario, y el panel gestiona tu configuración tal cual (para abrir
+los puertos de los clientes, `--serve-clients` a mano).
 
-## Pila completa: CSP + NCam + panel
+Las cuentas de tus clientes se crean en la pestaña **Accounts** del panel (en
+NCam escriben `ncam.user`) o con `--add-user NOMBRE [CLAVE]`.
+
+## Opcional: pila completa con el proxy delante
 
 Topología que monta `--install-csp` (los clientes entran al proxy, NCam solo
-ve al proxy, y los dos comparten cache):
+ve al proxy, y los dos comparten cache). No es el montaje por defecto: hazlo
+solo si quieres el proxy java en medio.
 
 ```
    clientes --newcamd--> CSP :10001 --newcamd--> NCam :10000 --> tarjetas
@@ -196,9 +250,9 @@ La pestaña **Accounts** funciona con los dos backends:
 
 | Backend | Dónde escribe | Cómo se aplica |
 | --- | --- | --- |
-| CSP (recomendado) | `/etc/cardservproxy/users.xml` | el panel escribe el fichero y lanza `update-users`: **no recarga el proxy** |
+| OSCam / NCam (**por defecto**) | `ncam.user` | se guarda por el webif y el softcam relee las cuentas al instante |
+| CSP (proxy delante, opcional) | `/etc/cardservproxy/users.xml` | el panel escribe el fichero y lanza `update-users`: **no recarga el proxy** |
 | CSP (instalación antigua) | `<user>` dentro de `proxy.xml` | se reenvía por `/cfgHandler` y el proxy recarga su configuración entera |
-| OSCam / NCam | `ncam.user` | se guarda por el webif y el softcam relee las cuentas al instante |
 
 ### Miles de usuarios
 
@@ -294,8 +348,13 @@ como administrador.
 | Opción | Para qué |
 | --- | --- |
 | `--backend oscam\|ncam\|csp\|mock` | qué softcam gestiona el panel (`ncam` = fork de OSCam) |
-| `--install-ncam` | compila e instala NCam (de `vendor/ncam`) y apunta el panel a él |
-| `--install-csp` | compila e instala el proxy java, lo cablea a NCam (conector + cache) y apunta el panel a él |
+| `--install-ncam`, `--with-ncam` | compila e instala NCam (de `vendor/ncam`) y apunta el panel a él |
+| `--no-ncam` | no instalar NCam ni tocar el que haya: solo el panel |
+| `--no-clients` | no abrir los puertos newcamd/cccam al instalar NCam nuevo |
+| `--caid HEX` | CAID que atiende NCam a tus clientes (por defecto `0x1802`) |
+| `--newcamd-port N`, `--cccam-port N` | puertos de tus clientes (10000 y 12000) |
+| `--no-proxy` | dejar claro que **no** se instala el proxy java |
+| `--install-csp` | (opcional) compila e instala el proxy java, lo cablea a NCam (conector + cache) y apunta el panel a él |
 | `--csp-port/-user/-pass` | status-web del proxy y su cuenta admin |
 | `--csp-client-port`, `--csp-caid` | puerto newcamd para tus clientes y CAID del perfil |
 | `--cache-peers`, `--cache-port` | se une al cluster de cache y activa la pestaña *Cache* |

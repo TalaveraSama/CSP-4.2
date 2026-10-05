@@ -24,11 +24,25 @@ if that host is unreachable (blocked, proxy, broken IPv6) it falls back to the
 checksum-verified tarball from `nodejs.org` unpacked into `/opt/node`. Use
 `--node-from nodesource|tarball|skip` and `NODE_MIRROR=...` to control it.
 
-It can also install the softcam itself: `--install-ncam` builds the vendored
-NCam tree (`vendor/ncam`, GPL-3), installs `/usr/local/bin/ncam` plus
-`ncam.service`, writes a minimal `/etc/ncam/ncam.conf` with the web interface
-on port 8888 (random password unless `--ncam-pass` is given) and configures the
-panel to manage it.
+It can also install the softcam itself: `--install-ncam` (or `--with-ncam`)
+builds the vendored NCam tree (`vendor/ncam`, GPL-3), installs
+`/usr/local/bin/ncam` plus `ncam.service`, writes a minimal
+`/etc/ncam/ncam.conf` with the web interface on port 8888 (random password
+unless `--ncam-pass` is given) and configures the panel to manage it. On a
+config the installer wrote itself it also opens the client ports (newcamd
+`10000`, cccam `12000`, `--caid`, `--no-clients`), because with no proxy in
+front NCam is what your clients connect to. An existing `ncam.conf` is never
+touched.
+
+**The CardServProxy java proxy is not installed by default any more** (0.6.0):
+`--install-csp` builds it, wires it to NCam and points the panel at it, `--all`
+adds it to the whole stack, and `--remove-csp` retires it and moves the panel
+back to NCam. `--no-ncam` is the opposite shape: the panel alone, against a
+softcam that already exists.
+
+The one-liners at the repository root wrap this:
+[`install.sh`](../../install.sh) is `--only-ncam` (panel + NCam, no proxy) and
+[`install-panel.sh`](../../install-panel.sh) is `--no-ncam` (panel only).
 
 The package also ships `csp-cache-node`, a standalone peer for the CSP cache
 cluster (UDP, same protocol as CardServProxy's ClusteredCache and NCam's
@@ -41,7 +55,7 @@ Spanish step-by-step guide: [`INSTALL.es.md`](INSTALL.es.md).
 
 ```bash
 cd panel
-bash packaging/build-deb.sh            # -> build/csp-panel_0.3.0_all.deb
+bash packaging/build-deb.sh            # -> build/csp-panel_0.6.0_all.deb
 VERSION=0.3.1 bash packaging/build-deb.sh   # needs a matching changelog entry
 BASE_PATH=/csp/ bash packaging/build-deb.sh   # panel served under /csp/
 ```
@@ -56,7 +70,7 @@ No `fakeroot` required — the script uses `dpkg-deb --root-owner-group`.
 ## Install
 
 ```bash
-sudo apt install ./csp-panel_0.3.0_all.deb     # or: sudo dpkg -i …
+sudo apt install ./csp-panel_0.6.0_all.deb     # or: sudo dpkg -i …
 sudoedit /etc/csp-panel/panel.env              # BACKEND + OSCAM_URL/CSP_URL
 sudo systemctl start csp-panel
 curl http://127.0.0.1:8090/healthz

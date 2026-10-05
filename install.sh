@@ -1,24 +1,45 @@
 #!/usr/bin/env bash
 #
-# CSP 4.2 — one-shot installer.
+# CSP 4.2 — one-shot installer: the panel + NCam, no proxy.
 #
-#   curl -fsSL https://raw.githubusercontent.com/TalaveraSama/CSP-4.2/arena/01a0f2ba-csp-4-2/install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/TalaveraSama/CSP-4.2/v0.6.0/install.sh | sudo bash
 #
-# With no arguments it installs the whole stack: the web panel, NCam, the
-# CardServProxy java proxy wired to it, and the cache cluster peer. Any
-# argument is passed straight to panel/packaging/install-ubuntu.sh, so:
+# With no arguments it installs the panel and NCam, configured so that **NCam
+# attends your clients** over newcamd/cccam and the panel manages NCam. The
+# CardServProxy java proxy is not installed (it is optional since 0.6.0: use
+# --install-csp or --all if you want it in front).
+#
+# Any argument is passed straight to panel/packaging/install-ubuntu.sh, so:
 #
 #   sudo bash install.sh --backend mock --yes        # just look at the panel
-#   sudo bash install.sh --install-ncam --yes        # panel + softcam only
+#   sudo bash install.sh --no-ncam --backend oscam \
+#        --url http://127.0.0.1:8888 --yes           # panel only, your softcam
+#   sudo bash install.sh --all --yes                 # + the legacy proxy
 #   sudo bash install.sh --help
+#
+# For the panel-only shape there is a script of its own: install-panel.sh
 #
 set -euo pipefail
 
-REPO_RAW=${REPO_RAW:-https://raw.githubusercontent.com/TalaveraSama/CSP-4.2/arena/01a0f2ba-csp-4-2}
+REPO_RAW=${REPO_RAW:-https://raw.githubusercontent.com/TalaveraSama/CSP-4.2/v0.6.0}
 INSTALLER=panel/packaging/install-ubuntu.sh
 
 args=("$@")
-[ ${#args[@]} -eq 0 ] && args=(--all --yes)
+# No arguments: panel + NCam, unattended (--only-ncam means exactly that: no
+# proxy).
+[ ${#args[@]} -eq 0 ] && args=(--only-ncam --yes)
+
+# With arguments, --only-ncam is still the shape unless the caller picked
+# another one: otherwise `install.sh --listen 0.0.0.0` would quietly install
+# the panel without the softcam. --yes is only implied when there were no
+# arguments at all, so an interactive run still asks.
+mode_given=0
+for a in "${args[@]}"; do
+  case "$a" in
+    --only-ncam|--no-ncam|--install-ncam|--with-ncam|--install-csp|--all|-h|--help) mode_given=1 ;;
+  esac
+done
+[ "$mode_given" = 1 ] || args=(--only-ncam "${args[@]}")
 
 here=""
 if [ -n "${BASH_SOURCE[0]:-}" ]; then

@@ -12,6 +12,10 @@
 # writes /etc/csp-panel/panel.env, starts the service and (optionally)
 # publishes it through nginx.
 #
+# The CardServProxy java proxy is NOT part of the default install any more:
+# NCam alone serves your clients (--no-ncam to keep only the panel, and
+# --install-csp/--all for the old proxy-in-front topology).
+#
 # Re-running it is safe: it upgrades the package and keeps your configuration.
 set -euo pipefail
 
@@ -22,6 +26,8 @@ case "$SELF" in bash|sh|-bash|-sh|"") SELF="install-ubuntu.sh" ;; esac
 CONF_DIR=/etc/$PKG
 CONF=$CONF_DIR/panel.env
 INSTALL_NCAM=0
+NO_NCAM=0
+NO_CLIENTS=0
 INSTALL_CSP=0
 READER_URL=""
 NEW_CREDITS=0
@@ -57,7 +63,7 @@ NODE_MIRROR=${NODE_MIRROR:-https://nodejs.org/dist}
 NET_TIMEOUT=${NET_TIMEOUT:-20}     # seconds to wait for a connection
 NET_MAXTIME=${NET_MAXTIME:-600}    # seconds for a whole download
 REPO_URL=${REPO_URL:-https://github.com/TalaveraSama/CSP-4.2.git}
-REPO_BRANCH=${REPO_BRANCH:-arena/01a0f2ba-csp-4-2}   # branch that carries panel/
+REPO_BRANCH=${REPO_BRANCH:-v0.6.0}  # tag/branch that carries panel/ (see README)
 SERVICE=$PKG.service
 
 # ---------------------------------------------------------------- options ---
@@ -88,19 +94,31 @@ Usage: sudo bash install-ubuntu.sh [options]
   --domain HOST              also configure an nginx vhost for HOST
   --base-path /csp/          serve the panel from a sub-directory instead
   --no-nginx                 never touch nginx
-  --all                      everything in one go: panel + NCam + CardServProxy
-                             + cache peer, wired together and ready to use
-                             (the panel then manages the proxy)
-  --only-ncam                panel + NCam, no proxy: the panel manages NCam
-  --install-ncam             also build and install NCam itself (from
-                             vendor/ncam, GPL-3) as the ncam.service unit, with
-                             its web interface enabled, and point the panel at it
+
+  Softcam (no proxy: the default; NCam serves your clients itself)
+  --install-ncam, --with-ncam
+                             build and install NCam itself (from vendor/ncam,
+                             GPL-3) as the ncam.service unit, with its web
+                             interface enabled, and point the panel at it; on a
+                             fresh install it also opens the newcamd/cccam
+                             ports for your clients (see --no-clients)
+  --no-ncam                  do not install NCam and do not touch one: only the
+                             panel, pointed at the softcam you already have
   --ncam-port N              NCam web interface port              (default 8888)
   --ncam-user NAME           NCam web interface user              (default admin)
   --ncam-pass PASS           NCam web interface password      (default: random)
-  --install-csp              also build and install the CardServProxy java
-                             proxy, wire it to NCam (newcamd connector + CSP
-                             cache link) and point the panel at it
+  --only-ncam                panel + NCam (this is what install.sh does), no proxy
+  --no-clients               do not open the newcamd/cccam ports on a fresh NCam
+  --caid HEX                 CA id NCam serves your clients   (default 0x1802)
+  --newcamd-port N           newcamd port for your clients        (default 10000)
+  --cccam-port N             cccam port for your clients          (default 12000)
+  --deskey HEX               newcamd des key (32 hex chars)
+
+  Optional: the legacy CardServProxy java proxy in front (not installed by
+  default; with it the clients enter the proxy and the panel manages it)
+  --install-csp, --all       build and install CardServProxy, wire it to NCam
+                             (newcamd connector + CSP cache link), point the
+                             panel at it; --all also installs NCam + cache peer
   --csp-port N               CSP status-web port                  (default 8082)
   --csp-user NAME            CSP admin account                   (default admin)
   --csp-pass PASS            CSP admin password               (default: random)
@@ -123,11 +141,13 @@ Usage: sudo bash install-ubuntu.sh [options]
                              before you get to hundreds of accounts
   --serve-clients            let NCam serve your clients directly (no proxy):
                              opens a newcamd and a cccam port and points the
-                             panel at NCam
+                             panel at NCam — done for you when NCam is installed
+                             fresh without the proxy
                              (--caid 1802, --newcamd-port 10000,
                               --cccam-port 12000, --deskey HEX)
   --remove-csp               stop and disable the java proxy (its config in
-                             /etc/cardservproxy is kept)
+                             /etc/cardservproxy is kept) and move the panel
+                             back to NCam
   --status                   check every piece of the stack and show what is
                              broken, with the last lines of its log
   --credentials              show which accounts exist and where they live
@@ -149,10 +169,14 @@ Usage: sudo bash install-ubuntu.sh [options]
 Examples:
   sudo bash install-ubuntu.sh                                   # guided
   sudo bash install-ubuntu.sh --backend mock -y                 # just try it
-  sudo bash install-ubuntu.sh --backend oscam --url http://192.168.1.10:8888 \\
-                              --domain panel.example.com -y
-  sudo bash install-ubuntu.sh --install-ncam --backend ncam -y    # softcam + panel
-  sudo bash install-ubuntu.sh --all -y                           # the whole stack
+  sudo bash install-ubuntu.sh --install-ncam -y                 # panel + NCam (no proxy)
+  sudo bash install-ubuntu.sh --no-ncam --backend oscam \\
+                              --url http://192.168.1.10:8888 --domain panel.example.com -y
+  sudo bash install-ubuntu.sh --all -y                          # + the legacy proxy
+
+The proxy is optional: without it NCam attends your clients on the newcamd and
+cccam ports (--serve-clients) and the panel manages NCam. Coming from an older
+install with the proxy in front: sudo bash install-ubuntu.sh --remove-csp
 EOF
 }
 
@@ -170,10 +194,13 @@ while [ $# -gt 0 ]; do
     --no-nginx)    WANT_NGINX=no; shift ;;
     --all)         ALL_IN_ONE=1; INSTALL_NCAM=1; INSTALL_CSP=1; shift ;;
     --only-ncam)   INSTALL_NCAM=1; INSTALL_CSP=0; BACKEND=ncam; shift ;;
+    --no-ncam)     NO_NCAM=1; INSTALL_NCAM=0; shift ;;
+    --no-clients)  NO_CLIENTS=1; shift ;;
+    --no-proxy)    INSTALL_CSP=0; ALL_IN_ONE=0; shift ;;
     --add-reader)  ACTION=addreader; READER_URL="${2:?--add-reader needs a url like cccam://user:pass@host:port}"; shift 2 ;;
     --reader-label) READER_LABEL="${2:?}"; shift 2 ;;
     --reader-group) READER_GROUP="${2:?}"; shift 2 ;;
-    --install-ncam) INSTALL_NCAM=1; shift ;;
+    --install-ncam|--with-ncam) INSTALL_NCAM=1; shift ;;
     --ncam-port)   NCAM_PORT="${2:?}"; shift 2 ;;
     --ncam-user)   NCAM_USER="${2:?}"; shift 2 ;;
     --ncam-pass)   NCAM_PASS="${2:?}"; shift 2 ;;
@@ -263,6 +290,15 @@ PY
   fi
 }
 
+# --no-ncam cannot be combined with the modes that install a softcam: it is the
+# "panel only, against a softcam I already have" install.
+if [ "$NO_NCAM" = 1 ] && [ "$INSTALL_NCAM" = 1 ]; then
+  die "--no-ncam and --install-ncam/--with-ncam/--only-ncam/--all contradict each other"
+fi
+if [ "$NO_NCAM" = 1 ] && [ "$BACKEND" = ncam ]; then
+  die "--no-ncam with --backend ncam makes no sense: the panel would have no NCam to talk to"
+fi
+
 # ------------------------------------------------------------ sanity check ---
 if [ "$(id -u)" -ne 0 ]; then
   have sudo || die "run this script as root"
@@ -287,6 +323,23 @@ case "$([ "$ACTION" = install ] && echo "$DISTRO:$RELEASE" || echo ubuntu:22.04)
 esac
 
 export DEBIAN_FRONTEND=noninteractive
+
+# --------------------------------------------------------- what to install ---
+# The interactive install only ever asks about the two shapes this release
+# supports: panel + NCam (NCam attends your clients) and panel alone, against a
+# softcam you already run. The java proxy is never offered by default.
+if [ "$ACTION" = install ] && [ "$INSTALL_NCAM" != 1 ] && [ "$NO_NCAM" != 1 ] \
+   && [ "$ASSUME_YES" != 1 ] && [ -t 0 ]; then
+  if [ -f /etc/ncam/ncam.conf ]; then
+    ask WANT_NCAM "  There is an NCam on this machine: manage it from the panel? (y/n)" "y"
+  else
+    ask WANT_NCAM "  Build and install NCam (softcam + panel, no proxy)? (y/n)" "y"
+  fi
+  case "${WANT_NCAM:-}" in
+    y|Y|yes|YES|s|S|si|Si|sí) if [ -f /etc/ncam/ncam.conf ]; then BACKEND="${BACKEND:-ncam}"; else INSTALL_NCAM=1; fi ;;
+    *) NO_NCAM=1 ;;
+  esac
+fi
 
 # -------------------------------------------------------- uninstall / purge --
 
@@ -604,8 +657,8 @@ show_status() {
   echo
   echo "${BOLD}Ports${OFF}"
   local p desc
-  for p in "${PORT:-8090}:panel" "8082:csp status-web" "8888:ncam webif" \
-           "10001:newcamd (clients)" "10000:newcamd (proxy -> ncam)"; do
+  for p in "${PORT:-8090}:panel" "8888:ncam webif" "10000:newcamd (clients)" \
+           "12000:cccam (clients)" "10001:newcamd (proxy clients)" "8082:csp status-web"; do
     desc="${p#*:}"; p="${p%%:*}"
     if ss -lnt 2>/dev/null | grep -q ":${p}\b"; then
       printf '  %-10s %-20s %s\n' "$p" "$desc" "${GREEN:-}listening${OFF}"
@@ -629,9 +682,16 @@ show_status() {
     && printf '  %-16s %s\n' "healthz" "$health" \
     || printf '  %-16s %s\n' "healthz" "${YELLOW}no answer on 127.0.0.1:${PORT:-8090}${OFF}"
   if [ -n "$url" ]; then
-    curl -fsS -m 3 -o /dev/null "$url" 2>/dev/null \
-      && printf '  %-16s %s\n' "backend reachable" "${GREEN:-}yes${OFF}" \
-      || printf '  %-16s %s\n' "backend reachable" "${YELLOW}no — that is what the login error means${OFF}"
+    # Any HTTP answer means it is there: OSCam/NCam (and the proxy's status-web)
+    # reply 401 to the unauthenticated probe request, which is a perfectly good
+    # sign of life. Only a failed connection is a problem.
+    local code
+    code="$(curl -sS -m 3 -o /dev/null -w '%{http_code}' "$url" 2>/dev/null || true)"
+    if [ -n "$code" ] && [ "$code" != 000 ]; then
+      printf '  %-16s %s\n' "backend reachable" "${GREEN:-}yes (http $code)${OFF}"
+    else
+      printf '  %-16s %s\n' "backend reachable" "${YELLOW}no — that is what the login error means${OFF}"
+    fi
   fi
 
   # The three ways to lock yourself out of your own panel, all silent.
@@ -1313,6 +1373,9 @@ EOF
     [ -f "$conf/ncam.user" ] || printf '# add your accounts here, or from the panel\n' > "$conf/ncam.user"
     [ -f "$conf/ncam.server" ] || printf '# add your readers here, or from the panel\n' > "$conf/ncam.server"
     NCAM_CREDENTIALS="$user / $pass"
+    # A configuration we wrote ourselves, so we may complete it (open the
+    # client ports) below; one that was already there is never touched.
+    NCAM_FRESH_CONF=1
     ok "wrote $conf/ncam.conf (webif on port $port, user $user)"
   else
     # Reuse what is already configured so the panel can log in.
@@ -1399,6 +1462,24 @@ if [ "$INSTALL_NCAM" = 1 ]; then
   # The panel should obviously manage the softcam we just installed.
   BACKEND="${BACKEND:-ncam}"
   [ "$BACKEND" = ncam ] && TARGET_URL="${TARGET_URL:-http://127.0.0.1:${NCAM_PORT:-8888}}"
+
+  # With no proxy in front, NCam is what your clients connect to: a freshly
+  # written ncam.conf with no [newcamd]/[cccam] port is a softcam nobody can
+  # use. An ncam.conf that was already there is never touched (re-run
+  # --serve-clients by hand for those).
+  if [ "${INSTALL_CSP:-0}" != 1 ] && [ "${NO_CLIENTS:-0}" != 1 ] \
+     && [ "${NCAM_FRESH_CONF:-0}" = 1 ]; then
+    serve_clients
+  fi
+fi
+
+# Coming from an install with the proxy in front: say it is not used any more,
+# because a cardservproxy still holding ports 10001/8082 is otherwise a
+# mystery ("why is my new account not working?").
+if [ "$INSTALL_CSP" != 1 ] && { [ -f /lib/systemd/system/cardservproxy.service ] \
+   || [ -f /etc/systemd/system/cardservproxy.service ]; }; then
+  warn "this machine still has the legacy CardServProxy installed; nothing here uses it now"
+  echo "    retire it with: sudo bash $SELF --remove-csp"
 fi
 
 if [ "$INSTALL_CSP" = 1 ]; then
@@ -1596,6 +1677,7 @@ ${BOLD}csp-panel is installed.${OFF}
 
   open       ${DOMAIN:+http://$DOMAIN/   (or }http://${OPEN_HOST}:${PORT}/${DOMAIN:+)}
   log in     $([ "$BACKEND" = mock ] && echo 'any user/password works in mock mode ("admin" grants admin rights)' || echo "with your $BACKEND web interface credentials")
+  stack      $([ "$INSTALL_CSP" = 1 ] && echo "panel + NCam + CardServProxy (the clients enter the proxy)" || { [ "$INSTALL_NCAM" = 1 ] && echo "panel + NCam (no proxy: NCam attends your clients)" || echo "panel only (no proxy, no NCam: it manages the softcam you already have)"; })
   config     sudoedit $CONF   ${DIM}then: sudo systemctl restart $SERVICE${OFF}
   status     systemctl status $SERVICE
   logs       journalctl -u $SERVICE -f

@@ -36,10 +36,11 @@ El panel habla **con un backend a la vez**, el que diga `BACKEND` en
 | Puerto | Proceso | Para qué |
 | --- | --- | --- |
 | 8090/tcp | csp-panel | la web, tú |
-| 8082/tcp | cardservproxy | status-web del proxy (loopback) |
-| 10001/tcp | cardservproxy | newcamd: **aquí entran tus clientes** |
 | 8888/tcp | ncam | webif de NCam (loopback) |
-| 10000/tcp | ncam | newcamd: por aquí entra el proxy |
+| 10000/tcp | ncam | newcamd: **aquí entran tus clientes** (sin proxy) |
+| 12000/tcp | ncam | cccam: la otra puerta para tus clientes |
+| 8082/tcp | cardservproxy | status-web del proxy (solo con `--install-csp`) |
+| 10001/tcp | cardservproxy | newcamd: aquí entran tus clientes con el proxy delante |
 | 54278/udp | cardservproxy | ClusteredCache |
 | 54279/udp | ncam | `csp_port` |
 | 54280/udp | csp-cache-node | nuestro peer de cache |
@@ -49,15 +50,22 @@ El panel habla **con un backend a la vez**, el que diga `BACKEND` en
 
 ## 2. Instalación
 
+Desde la 0.6.0 el proxy java **no** entra en la instalación: NCam es quien
+atiende a tus clientes y el panel lo gestiona. Hay un instalador para cada
+montaje:
+
 ```bash
-# la pila completa: panel + NCam + proxy + cache  (el panel gestiona el proxy)
-curl -fsSL https://raw.githubusercontent.com/TalaveraSama/CSP-4.2/arena/01a0f2ba-csp-4-2/install.sh | sudo bash
+# panel + NCam: NCam abre los puertos newcamd/cccam de tus clientes (lo normal)
+curl -fsSL https://raw.githubusercontent.com/TalaveraSama/CSP-4.2/v0.6.0/install.sh | sudo bash
 
-# solo NCam (sin proxy): el panel gestiona NCam
-sudo bash install.sh --only-ncam --yes
+# solo el panel, contra un softcam que ya tienes (no toca NCam)
+curl -fsSL https://raw.githubusercontent.com/TalaveraSama/CSP-4.2/v0.6.0/install-panel.sh \
+     | sudo bash -s -- --backend ncam --url http://192.168.1.50:8888
 
-# solo el panel, contra un softcam que ya tienes
-sudo bash install.sh --backend ncam --url http://192.168.1.50:8888 --yes
+# desde un clon
+sudo bash install.sh --caid 1810                       # panel + NCam, tu CAID
+sudo bash install.sh --no-clients --yes                # sin abrir puertos
+sudo bash install.sh --all --yes                       # opcional: + proxy java
 ```
 
 Para que se vea desde otro PC añade `--listen 0.0.0.0` (y `ufw allow 8090/tcp`
@@ -291,10 +299,13 @@ sudo bash panel/packaging/install-ubuntu.sh --cache-peers 10.8.0.2:54278,127.0.0
 
 | Opción | Qué hace |
 | --- | --- |
-| `--all` | panel + NCam + proxy + cache, cableados; el panel gestiona el proxy |
-| `--only-ncam` | panel + NCam, sin proxy; el panel gestiona NCam |
-| `--install-ncam` | compila e instala NCam (de `vendor/ncam`) |
-| `--install-csp` | compila e instala el proxy java y lo cablea a NCam |
+| `--only-ncam` | panel + NCam, sin proxy (lo que hace `install.sh`); el panel gestiona NCam |
+| `--install-ncam`, `--with-ncam` | compila e instala NCam (de `vendor/ncam`) |
+| `--no-ncam` | no instalar NCam ni tocarlo: solo el panel (lo que hace `install-panel.sh`) |
+| `--no-clients` | no abrir los puertos newcamd/cccam al instalar un NCam nuevo |
+| `--caid HEX` | CAID que NCam sirve a tus clientes (por defecto `0x1802`) |
+| `--all` | (opcional) panel + NCam + proxy + cache, cableados; el panel gestiona el proxy |
+| `--install-csp` | (opcional) compila e instala el proxy java y lo cablea a NCam |
 | `--deb FILE` | instala un `.deb` ya construido en vez de compilar |
 
 ### Qué gestiona el panel
