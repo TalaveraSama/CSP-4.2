@@ -116,6 +116,8 @@ Usage: sudo bash install-ubuntu.sh [options]
                              into users.xml (XmlUserManager), so adding an
                              account no longer reloads the proxy — do this
                              before you get to hundreds of accounts
+  --status                   check every piece of the stack and show what is
+                             broken, with the last lines of its log
   --credentials              show which accounts exist and where they live
   --reset-password [PASS]    give the panel admin account a new password
                              (random when PASS is omitted)
@@ -169,6 +171,7 @@ while [ $# -gt 0 ]; do
     --cache-port)  CACHE_NODE_PORT="${2:?}"; shift 2 ;;
     -y|--yes)      ASSUME_YES=1; shift ;;
     --force)       FORCE=1; shift ;;
+    --status)      ACTION=status; shift ;;
     --credentials) ACTION=credentials; shift ;;
     --migrate-users) ACTION=migrate; shift ;;
     --reset-password) ACTION=reset; NEW_PASSWORD="${2:-}"; [ -n "${2:-}" ] && shift; shift ;;
@@ -524,7 +527,100 @@ PY
   ok "check it in the panel: Readers tab, or journalctl -u ncam -f"
 }
 
+# ----------------------------------------------------------------- status ---
+# One place that answers "what is broken", instead of four systemctl calls and
+# a guess.
+show_status() {
+  local backend url
+  backend="$(panel_backend)"
+  case "$backend" in
+    csp)  url="$(ini_get "$CONF" CSP_URL)" ;;
+    ncam) url="$(ini_get "$CONF" NCAM_URL)" ;;
+    *)    url="$(ini_get "$CONF" OSCAM_URL)" ;;
+  esac
+
+  echo
+  echo "${BOLD}Services${OFF}"
+  local svc state
+  for svc in csp-panel ncam cardservproxy csp-cache-node; do
+    [ -f "/lib/systemd/system/$svc.service" ] || [ -f "/etc/systemd/system/$svc.service" ] || continue
+    if systemd_running; then
+      state="$(systemctl is-active "$svc" 2>/dev/null)"
+    else
+      state="unknown (no systemd)"
+    fi
+    case "$state" in
+      active)  printf '  %-16s %s\n' "$svc" "${GREEN:-}$state${OFF}" ;;
+      *)       printf '  %-16s %s\n' "$svc" "${YELLOW}$state${OFF}"
+               systemd_running && journalctl -u "$svc" -n 6 --no-pager 2>/dev/null \
+                 | grep -vE 'Scheduled restart|Stopped |Started |Consumed|Main process exited|Failed with result' \
+                 | tail -4 | sed 's/^/      /' ;;
+    esac
+  done
+
+  echo
+  echo "${BOLD}Ports${OFF}"
+  local p desc
+  for p in "${PORT:-8090}:panel" "8082:csp status-web" "8888:ncam webif" \
+           "10001:newcamd (clients)" "10000:newcamd (proxy -> ncam)"; do
+    desc="${p#*:}"; p="${p%%:*}"
+    if ss -lnt 2>/dev/null | grep -q ":${p}\b"; then
+      printf '  %-10s %-20s %s\n' "$p" "$desc" "${GREEN:-}listening${OFF}"
+    else
+      printf '  %-10s %-20s %s\n' "$p" "$desc" "${DIM}-${OFF}"
+    fi
+  done
+  for p in "${CACHE_NODE_PORT:-54280}:cache peer" "54279:ncam csp_port" "54278:csp cluster"; do
+    desc="${p#*:}"; p="${p%%:*}"
+    ss -lnu 2>/dev/null | grep -q ":${p}\b" \
+      && printf '  %-10s %-20s %s\n' "$p/udp" "$desc" "${GREEN:-}listening${OFF}" \
+      || printf '  %-10s %-20s %s\n' "$p/udp" "$desc" "${DIM}-${OFF}"
+  done
+
+  echo
+  echo "${BOLD}Panel${OFF}"
+  printf '  %-16s %s\n' "config" "$CONF"
+  printf '  %-16s %s\n' "backend" "$backend${url:+ -> $url}"
+  local health
+  health="$(curl -fsS -m 3 "http://127.0.0.1:${PORT:-8090}/healthz" 2>/dev/null)" \
+    && printf '  %-16s %s\n' "healthz" "$health" \
+    || printf '  %-16s %s\n' "healthz" "${YELLOW}no answer on 127.0.0.1:${PORT:-8090}${OFF}"
+  if [ -n "$url" ]; then
+    curl -fsS -m 3 -o /dev/null "$url" 2>/dev/null \
+      && printf '  %-16s %s\n' "backend reachable" "${GREEN:-}yes${OFF}" \
+      || printf '  %-16s %s\n' "backend reachable" "${YELLOW}no — that is what the login error means${OFF}"
+  fi
+
+  # A stale unit is invisible otherwise and costs an hour of head scratching.
+  if [ -f /lib/systemd/system/cardservproxy.service ]; then
+    echo
+    echo "${BOLD}CardServProxy${OFF}"
+    grep -q 'allowanyjvm' /lib/systemd/system/cardservproxy.service \
+      || warn "the unit is out of date: it does not pass -Dcom.bowman.cardserv.allowanyjvm=true"
+    grep -q 'proxy.xml' /lib/systemd/system/cardservproxy.service \
+      || warn "the unit is out of date: it does not pass the path of proxy.xml"
+    if ! grep -q 'allowanyjvm' /lib/systemd/system/cardservproxy.service \
+       || ! grep -q 'proxy.xml' /lib/systemd/system/cardservproxy.service; then
+      local units
+      units="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo /opt/CSP-4.2/panel/packaging)"
+      echo "    refresh it with:"
+      echo "      sudo install -m 644 $units/cardservproxy.service /lib/systemd/system/"
+      echo "      sudo systemctl daemon-reload && sudo systemctl restart cardservproxy"
+    fi
+    [ -f /opt/cardservproxy/lib/cardservproxy.jar ] \
+      && printf '  %-16s %s\n' "jar" "$(ls -lh /opt/cardservproxy/lib/cardservproxy.jar | awk '{print $5, $6, $7, $8}')" \
+      || warn "no jar in /opt/cardservproxy/lib: build it with --install-csp"
+    [ -f /etc/cardservproxy/proxy.xml ] \
+      && printf '  %-16s %s\n' "proxy.xml" "caid $(sed -n 's/.*ca-id="\([^"]*\)".*/\1/p' /etc/cardservproxy/proxy.xml | head -1), $(grep -c '<user ' /etc/cardservproxy/proxy.xml) user(s)" \
+      || warn "no /etc/cardservproxy/proxy.xml"
+    [ -f /etc/cardservproxy/users.xml ] \
+      && printf '  %-16s %s\n' "users.xml" "$(grep -c '<user ' /etc/cardservproxy/users.xml) client(s)"
+  fi
+  echo
+}
+
 case "$ACTION" in
+  status)      show_status;      exit 0 ;;
   credentials) show_credentials; exit 0 ;;
   migrate)     migrate_users;   exit 0 ;;
   addreader)   add_reader;      exit 0 ;;

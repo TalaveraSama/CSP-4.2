@@ -232,6 +232,7 @@ sudo bash panel/packaging/install-ubuntu.sh --cache-peers 10.8.0.2:54278,127.0.0
 
 | Comando | Qué hace |
 | --- | --- |
+| `--status` | revisa toda la pila y dice qué está roto, con las últimas líneas de su log |
 | `--credentials` | enseña qué cuentas existen y en qué fichero |
 | `--reset-password [CLAVE]` | nueva contraseña para entrar al panel |
 | `--add-user NOMBRE [CLAVE]` | alta de cliente |
@@ -250,6 +251,16 @@ sudo bash panel/packaging/install-ubuntu.sh --cache-peers 10.8.0.2:54278,127.0.0
 | `--force` | ejecutar en una distribución que no sea Ubuntu 20/22/24 |
 
 ---
+
+### Diagnóstico rápido
+
+```bash
+sudo bash panel/packaging/install-ubuntu.sh --status
+```
+
+Enseña el estado de los cuatro servicios (con el final de su log si alguno
+falla), qué puertos escuchan, si el panel responde, si el backend configurado
+es alcanzable, y avisa si la unidad de systemd del proxy está desactualizada.
 
 ## 9. Servicios y ficheros
 

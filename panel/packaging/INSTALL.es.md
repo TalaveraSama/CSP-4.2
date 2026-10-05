@@ -299,6 +299,7 @@ como administrador.
 | `--csp-port/-user/-pass` | status-web del proxy y su cuenta admin |
 | `--csp-client-port`, `--csp-caid` | puerto newcamd para tus clientes y CAID del perfil |
 | `--cache-peers`, `--cache-port` | se une al cluster de cache y activa la pestaña *Cache* |
+| `--status` | diagnóstico de toda la pila |
 | `--credentials` | enseña qué cuentas hay y en qué fichero |
 | `--migrate-users` | saca las cuentas de `proxy.xml` a `users.xml` (para miles de clientes) |
 | `--only-ncam` | panel + NCam, sin proxy |
