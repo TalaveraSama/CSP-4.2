@@ -14,7 +14,7 @@
 
 #define MAX_COOL_DMX 4
 
-//kronos-Plattform (Coolsterem ZEE²)
+//kronos-Plattform (Coolsterem ZEEï¿½)
 //#define MAX_COOL_DMX 3
 
 

@@ -398,6 +398,10 @@ preferlocalcards              = 1
 
 [webif]
 httpport                      = $port
+# The panel runs on this same machine and is the intended front end, so the
+# web interface only listens on loopback. Delete serverip (and widen
+# httpallowed) if you also want to reach NCam's own pages from the LAN.
+serverip                      = 127.0.0.1
 httpuser                      = $user
 httppwd                       = $pass
 httpallowed                   = 127.0.0.1,::1

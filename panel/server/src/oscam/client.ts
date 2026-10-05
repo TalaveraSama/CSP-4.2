@@ -220,6 +220,26 @@ export class OscamClient implements ProxyBackend {
     return root as Node;
   }
 
+  /**
+   * Same as api(), but an API-level complaint (`<error>`) resolves to
+   * undefined instead of failing.
+   *
+   * A freshly installed OSCam/NCam has no accounts yet, and `part=userstats`
+   * then answers `<error>Invalid client</error>`. That must not take the whole
+   * dashboard down: the status part alone is perfectly useful.
+   */
+  private async optionalApi(
+    auth: BackendAuth,
+    query: Record<string, string | undefined>,
+  ): Promise<Node | undefined> {
+    try {
+      return await this.api(auth, query);
+    } catch (err) {
+      if (err instanceof BackendError && err.status === 400) return undefined;
+      throw err;
+    }
+  }
+
   async login(user: string, password: string): Promise<LoginResult | null> {
     try {
       const root = await this.api({ user, password }, { part: 'status' });
@@ -490,8 +510,8 @@ export class OscamClient implements ProxyBackend {
 
     const [statusRoot, userRoot, failbanRoot] = await Promise.all([
       wantsStatus ? this.api(auth, { part: 'status', appendlog: wantsLog ? '1' : undefined }) : undefined,
-      wantsUsers ? this.api(auth, { part: 'userstats' }) : undefined,
-      wantsFailban ? this.api(auth, { part: 'failban' }) : undefined,
+      wantsUsers ? this.optionalApi(auth, { part: 'userstats' }) : undefined,
+      wantsFailban ? this.optionalApi(auth, { part: 'failban' }) : undefined,
     ]);
 
     const snap = emptySnapshot();

@@ -99,6 +99,32 @@ test('reports the product name and a writable config despite the webif quirk', a
   assert.equal(ro.writable, false, 'read-only when httpreadonly=1');
 });
 
+test('a softcam with no accounts yet still renders the dashboard', async () => {
+  // part=userstats answers <error>Invalid client</error> until the first
+  // account exists; that must not blank out the whole overview.
+  const status =
+    `<?xml version="1.0" encoding="UTF-8"?>\n<ncam version="Unofficial" revision="git1234567" starttime="2026-10-05T02:41:01+0000" uptime="42" readonly="0">\n\t<status>\n\t\t<client type="s" name="root" protocol="server" thid="id_0x1"><request/><times login="2026-10-05T02:41:01+0000" online="42" idle="42"/><connection ip="127.0.0.1" port="0">OK</connection></client>\n\t</status>\n</ncam>`;
+  const failure =
+    `<?xml version="1.0" encoding="UTF-8"?>\n<ncam version="Unofficial" revision="git1234567" uptime="42" readonly="0">\n\t<error>Invalid client</error>\n</ncam>`;
+
+  const transport: OscamTransport = {
+    target: 'http://box:8888',
+    async get(_auth, _path, query) {
+      return query.part === 'userstats' ? failure : status;
+    },
+    async post() {
+      return status;
+    },
+  };
+
+  const snap = await new OscamClient(transport, false, NCAM_FLAVOUR).snapshot(auth, [
+    { command: 'proxy-status' },
+    { command: 'proxy-users' },
+  ]);
+  assert.equal(snap.proxy?.name, 'NCam Unofficial');
+  assert.deepEqual(snap.users?.sessions, []);
+});
+
 test('the proxy card shows the fork name, not OSCam', async () => {
   const snap = await ncam().snapshot(auth, [{ command: 'proxy-status' }]);
   assert.match(snap.proxy?.name ?? '', /^NCam/);
