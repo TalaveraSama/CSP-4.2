@@ -96,6 +96,34 @@ sudo bash panel/packaging/install-ubuntu.sh --yes
 El historial de cambios viaja en el paquete: `apt changelog csp-panel` o
 `zcat /usr/share/doc/csp-panel/changelog.Debian.gz`.
 
+## "Instalé y no me abre"
+
+Por seguridad el panel escucha **solo en loopback** (`HOST=127.0.0.1`): se abre
+desde el propio servidor, no desde tu portátil. Tres salidas:
+
+```bash
+# a) abrirlo a la LAN  ->  http://<ip-del-servidor>:8090/
+sudo bash panel/packaging/install-ubuntu.sh --listen 0.0.0.0 --yes
+sudo ufw allow 8090/tcp          # solo si tienes ufw activo
+
+# b) publicarlo con nginx (recomendado, permite HTTPS con certbot)
+sudo bash panel/packaging/install-ubuntu.sh --domain panel.midominio.com --yes
+
+# c) sin tocar nada, túnel ssh desde tu portátil
+ssh -L 8090:127.0.0.1:8090 root@<ip-del-servidor>   # y abre http://127.0.0.1:8090/
+```
+
+Re-ejecutar el instalador **no cambia lo que ya tenías**: si no pasas
+`--backend`/`--url`, toma los valores actuales de `panel.env` como predeterminados.
+
+Comprobaciones rápidas en el servidor:
+
+```bash
+curl http://127.0.0.1:8090/healthz     # debe responder {"ok":true,...}
+ss -lntp | grep 8090                   # 127.0.0.1:8090 = solo local, 0.0.0.0:8090 = LAN
+systemctl status csp-panel
+```
+
 ## Después de instalar
 
 ```bash
@@ -133,6 +161,7 @@ sudo certbot --nginx -d panel.midominio.com
 | `no node interpreter found` | Node instalado con nvm (solo visible para tu usuario): pon `NODE_BIN=/ruta/a/node` en `/etc/csp-panel/panel.env` |
 | `Failed to connect to deb.nodesource.com ... timed out` | NodeSource bloqueado en tu red. El instalador ya cae solo al tarball de `nodejs.org`; si eso también está bloqueado usa un espejo (`NODE_MIRROR=...` con `--node-from tarball`), un proxy (`export https_proxy=...` + `sudo -E`), o instala Node a mano y repite con `--node-from skip` |
 | Sin salida a internet en el servidor | compila el `.deb` en otra máquina (`bash panel/packaging/build-deb.sh`), cópialo y ejecuta `sudo bash install-ubuntu.sh --deb csp-panel_*_all.deb --node-from skip` |
+| No abre desde otro PC | el panel está en `HOST=127.0.0.1`; reinstala con `--listen 0.0.0.0` o usa nginx (`--domain`) |
 | `502 Bad Gateway` en nginx | el servicio no está arrancado o `PORT`/`HOST` de `panel.env` no coinciden con el `proxy_pass` del vhost |
 | Certificado autofirmado del softcam | `INSECURE_TLS=1` en `panel.env` (ya viene activado) |
 | Panel en subdirectorio | reinstala con `--base-path /csp/`; el bundle se recompila con esa ruta base |

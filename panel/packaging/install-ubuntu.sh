@@ -16,6 +16,9 @@
 set -euo pipefail
 
 PKG=csp-panel
+# $0 is "bash" when the script is piped from curl: use a name users can retype.
+SELF="$(basename "${BASH_SOURCE[0]:-$0}")"
+case "$SELF" in bash|sh|-bash|-sh|"") SELF="install-ubuntu.sh" ;; esac
 CONF_DIR=/etc/$PKG
 CONF=$CONF_DIR/panel.env
 NODE_MAJOR=${NODE_MAJOR:-22}       # Node.js line installed when the distro's is too old
@@ -314,7 +317,7 @@ deb.nodesource.com nor $NODE_MIRROR (firewall, proxy, DNS or IPv6 problem).
 Options:
   * behind a proxy:   export https_proxy=http://proxy:3128 and run this again
   * pick a mirror:    NODE_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/nodejs-release \
-                        sudo -E bash $0 --node-from tarball ...
+                        sudo -E bash $SELF --node-from tarball ...
   * install Node 20+ by hand (apt/nvm/tarball), then re-run with --node-from skip
   * build the .deb on another machine and copy it over:
         bash panel/packaging/build-deb.sh      # on a machine with Node
@@ -378,13 +381,29 @@ ok "$PKG $(dpkg-query -W -f='${Version}' $PKG) installed"
 
 # ---------------------------------------------------------- configuration ---
 say "configuring $CONF"
+
+# Re-running the installer must not silently change an existing setup, so the
+# defaults come from the current panel.env whenever the flag was not given.
+conf_get() { [ -f "$CONF" ] && sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p" "$CONF" | tail -1; }
+CUR_BACKEND="$(conf_get BACKEND)"
+CUR_MOCK="$(conf_get MOCK)"
+DEF_BACKEND="${CUR_BACKEND:-oscam}"
+[ "$CUR_MOCK" = 1 ] && DEF_BACKEND=mock
+DEF_PORT="$(conf_get PORT)"
+DEF_HOST="$(conf_get HOST)"
+case "${BACKEND:-$DEF_BACKEND}" in
+  ncam) DEF_URL="$(conf_get NCAM_URL)" ;;
+  csp)  DEF_URL="$(conf_get CSP_URL)" ;;
+  *)    DEF_URL="$(conf_get OSCAM_URL)" ;;
+esac
+
 if [ -z "$BACKEND" ]; then
   echo "  Which softcam should the panel manage?"
   echo "    oscam  OSCam web interface (/oscamapi.html)"
   echo "    ncam   NCam, the OSCam fork (/ncamapi.html)"
   echo "    csp    CardServProxy status web (/xmlHandler)"
   echo "    mock   built-in demo data, no softcam needed"
-  ask BACKEND "  backend" "oscam"
+  ask BACKEND "  backend" "$DEF_BACKEND"
 fi
 case "$BACKEND" in
   oscam|ncam|csp|mock) ;;
@@ -393,19 +412,24 @@ esac
 
 if [ "$BACKEND" != mock ] && [ -z "$TARGET_URL" ]; then
   if [ "$BACKEND" = oscam ]; then
-    ask TARGET_URL "  OSCam web interface URL" "http://127.0.0.1:8888"
+    ask TARGET_URL "  OSCam web interface URL" "${DEF_URL:-http://127.0.0.1:8888}"
   elif [ "$BACKEND" = ncam ]; then
-    ask TARGET_URL "  NCam web interface URL" "http://127.0.0.1:8888"
+    ask TARGET_URL "  NCam web interface URL" "${DEF_URL:-http://127.0.0.1:8888}"
   else
-    ask TARGET_URL "  CardServProxy status web URL" "http://127.0.0.1:8082"
+    ask TARGET_URL "  CardServProxy status web URL" "${DEF_URL:-http://127.0.0.1:8082}"
   fi
 fi
-[ -n "$PORT" ]   || ask PORT   "  panel port" "8090"
-[ -n "$LISTEN" ] || ask LISTEN "  bind address" "127.0.0.1"
+[ -n "$PORT" ]   || ask PORT   "  panel port" "${DEF_PORT:-8090}"
+if [ -z "$LISTEN" ]; then
+  echo "  Bind address: 127.0.0.1 = only this machine (publish it with nginx),"
+  echo "                0.0.0.0   = reachable from your LAN at http://<ip>:$PORT/"
+  ask LISTEN "  bind address" "${DEF_HOST:-127.0.0.1}"
+fi
 
 case "$BACKEND" in
   mock)
-    set_kv "$CONF" BACKEND oscam
+    # Keep whichever dialect was configured; MOCK just swaps in fake data.
+    set_kv "$CONF" BACKEND "${CUR_BACKEND:-oscam}"
     set_kv "$CONF" MOCK 1 ;;
   oscam)
     set_kv "$CONF" BACKEND oscam
@@ -488,6 +512,7 @@ EOF
 fi
 
 # ----------------------------------------------------------------- summary ---
+LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 cat <<EOF
 
 ${BOLD}csp-panel is installed.${OFF}
@@ -497,9 +522,32 @@ ${BOLD}csp-panel is installed.${OFF}
   config     sudoedit $CONF   ${DIM}then: sudo systemctl restart $SERVICE${OFF}
   status     systemctl status $SERVICE
   logs       journalctl -u $SERVICE -f
-  remove     sudo bash $(basename "$0") --uninstall   ${DIM}(--purge to drop the config too)${OFF}
+  remove     sudo bash $SELF --uninstall   ${DIM}(--purge to drop the config too)${OFF}
 
 EOF
+
+# The default bind address is loopback: say so, because "it does not open" from
+# another machine is otherwise a very confusing first experience.
+if [ -z "$DOMAIN" ] && { [ "$LISTEN" = 127.0.0.1 ] || [ "$LISTEN" = localhost ]; }; then
+  cat <<EOF
+  ${YELLOW}Note:${OFF} the panel is listening on loopback only, so it opens from THIS
+  machine (http://127.0.0.1:${PORT}/ or an ssh tunnel), not from your laptop.
+
+  To reach it from your LAN at ${BOLD}http://${LAN_IP:-<server-ip>}:${PORT}/${OFF}:
+
+      sudo bash $SELF --listen 0.0.0.0 --yes
+      sudo ufw allow ${PORT}/tcp        ${DIM}# only if ufw is enabled${OFF}
+
+  Or publish it properly with nginx (recommended, allows TLS):
+
+      sudo bash $SELF --domain panel.example.com --yes
+
+  Quick peek without changing anything, from your laptop:
+
+      ssh -L ${PORT}:127.0.0.1:${PORT} root@${LAN_IP:-<server-ip>}   ${DIM}# then open http://127.0.0.1:${PORT}/${OFF}
+
+EOF
+fi
 if [ "$BACKEND" = oscam ] || [ "$BACKEND" = ncam ]; then
   CONF_NAME=$([ "$BACKEND" = ncam ] && echo ncam.conf || echo oscam.conf)
   cat <<EOF
