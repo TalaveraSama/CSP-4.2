@@ -1,13 +1,12 @@
 #!/bin/bash
 
+## CSP refuses to start on a vm whose java.vm.name starts with "OpenJDK"
+## (CardServProxy.main). In 2010 that meant "not Sun's jvm"; today it means
+## every jvm you can install, so allowanyjvm is no longer optional.
+JVM_PARAMS="-Dcom.bowman.cardserv.allowanyjvm=true -Dnetworkaddress.cache.ttl=0"
+
 ## uncomment this for large csp installations
-#JVM_PARAMS="-Xmx512m -Dsun.net.inetaddr.ttl=0"
-
-## otherwise use this
-JVM_PARAMS="-Dsun.net.inetaddr.ttl=0"
-
-## to enable running under other jvms besides sun:
-#JVM_PARAMS="-Dcom.bowman.cardserv.allowanyjvm=true -Dnetworkaddress.cache.ttl=0"
+#JVM_PARAMS="-Dcom.bowman.cardserv.allowanyjvm=true -Dnetworkaddress.cache.ttl=0 -Xmx512m"
 
 case "`uname -s`" in
 

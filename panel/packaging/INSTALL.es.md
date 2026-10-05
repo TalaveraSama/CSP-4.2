@@ -330,6 +330,8 @@ sudo certbot --nginx -d panel.midominio.com
 | `no node interpreter found` | Node instalado con nvm (solo visible para tu usuario): pon `NODE_BIN=/ruta/a/node` en `/etc/csp-panel/panel.env` |
 | `Failed to connect to deb.nodesource.com ... timed out` | NodeSource bloqueado en tu red. El instalador ya cae solo al tarball de `nodejs.org`; si eso también está bloqueado usa un espejo (`NODE_MIRROR=...` con `--node-from tarball`), un proxy (`export https_proxy=...` + `sudo -E`), o instala Node a mano y repite con `--node-from skip` |
 | Sin salida a internet en el servidor | compila el `.deb` en otra máquina (`bash panel/packaging/build-deb.sh`), cópialo y ejecuta `sudo bash install-ubuntu.sh --deb csp-panel_*_all.deb --node-from skip` |
+| `Startup failed: Unsupported java vm 'OpenJDK…'` | CSP solo aceptaba la JVM de Sun; hay que arrancarlo con `-Dcom.bowman.cardserv.allowanyjvm=true`. Ya va en `cardservproxy.service`: `sudo git pull && sudo bash panel/packaging/install-ubuntu.sh --install-csp --yes` |
+| `Cannot reach CSP at …:8082` en el login | el proxy no está levantado: `systemctl status cardservproxy`. Mientras tanto, `--backend ncam --url http://127.0.0.1:8888 --yes` te devuelve el panel |
 | No abre desde otro PC | el panel está en `HOST=127.0.0.1`; reinstala con `--listen 0.0.0.0` o usa nginx (`--domain`) |
 | `502 Bad Gateway` en nginx | el servicio no está arrancado o `PORT`/`HOST` de `panel.env` no coinciden con el `proxy_pass` del vhost |
 | Certificado autofirmado del softcam | `INSECURE_TLS=1` en `panel.env` (ya viene activado) |

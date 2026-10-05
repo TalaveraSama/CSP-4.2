@@ -9,9 +9,13 @@ Type=simple
 User=cardservproxy
 Group=cardservproxy
 WorkingDirectory=/opt/cardservproxy
-# -Dsun.net.inetaddr.ttl=0 keeps the JVM from caching DNS forever, which
-# matters for peers on dynamic addresses (same flag as the stock cardproxy.sh).
-ExecStart=/usr/bin/java -Dsun.net.inetaddr.ttl=0 -Xmx256m -jar /opt/cardservproxy/lib/cardservproxy.jar
+# allowanyjvm: CardServProxy refuses to start on anything whose java.vm.name
+# begins with "OpenJDK" (see CardServProxy.main, written when Sun's JVM was the
+# only one worth testing against). Every JDK you can install today is OpenJDK,
+# so the flag its own cardproxy.sh only mentions in a comment is now mandatory.
+# networkaddress.cache.ttl replaces the Sun-only sun.net.inetaddr.ttl: it keeps
+# the JVM from caching DNS forever, which matters for peers on dynamic IPs.
+ExecStart=/usr/bin/java -Dcom.bowman.cardserv.allowanyjvm=true -Dnetworkaddress.cache.ttl=0 -Xmx256m -jar /opt/cardservproxy/lib/cardservproxy.jar
 Restart=always
 RestartSec=5
 LimitNOFILE=8192
