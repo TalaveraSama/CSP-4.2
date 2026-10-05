@@ -629,11 +629,17 @@ fi
 
 # ----------------------------------------------------------------- summary ---
 LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+# 0.0.0.0 is not an address anybody can type in a browser: show the real one.
+case "$LISTEN" in
+  0.0.0.0|'' ) OPEN_HOST="${LAN_IP:-127.0.0.1}" ;;
+  '::'|'[::]') OPEN_HOST="${LAN_IP:-127.0.0.1}" ;;
+  *          ) OPEN_HOST="$LISTEN" ;;
+esac
 cat <<EOF
 
 ${BOLD}csp-panel is installed.${OFF}
 
-  open       ${DOMAIN:+http://$DOMAIN/   (or }http://${LISTEN}:${PORT}/${DOMAIN:+)}
+  open       ${DOMAIN:+http://$DOMAIN/   (or }http://${OPEN_HOST}:${PORT}/${DOMAIN:+)}
   log in     $([ "$BACKEND" = mock ] && echo 'any user/password works in mock mode ("admin" grants admin rights)' || echo "with your $BACKEND web interface credentials")
   config     sudoedit $CONF   ${DIM}then: sudo systemctl restart $SERVICE${OFF}
   status     systemctl status $SERVICE
@@ -667,7 +673,8 @@ if [ -z "$DOMAIN" ] && { [ "$LISTEN" = 127.0.0.1 ] || [ "$LISTEN" = localhost ];
 
 EOF
 fi
-if [ "$BACKEND" = oscam ] || [ "$BACKEND" = ncam ]; then
+# Not worth saying when this very script just wrote a working ncam.conf.
+if [ "$INSTALL_NCAM" != 1 ] && { [ "$BACKEND" = oscam ] || [ "$BACKEND" = ncam ]; }; then
   CONF_NAME=$([ "$BACKEND" = ncam ] && echo ncam.conf || echo oscam.conf)
   cat <<EOF
   ${DIM}Reminder: in $CONF_NAME [webif] set httpport, httpuser, httppwd and add this
