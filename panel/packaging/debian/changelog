@@ -1,3 +1,28 @@
+csp-panel (0.4.0) unstable; urgency=medium
+
+  * Accounts tab: create, edit and delete the client accounts of a
+    CardServProxy from the panel. They are the <user> elements of
+    proxy.xml, edited in place (comments and formatting survive) and
+    posted back through /cfgHandler.
+  * New csp-cache-node daemon: a peer in the CSP cache cluster, speaking
+    the same udp protocol as CardServProxy's ClusteredCache and NCam's
+    csp_port. The panel reads its stats and shows them in a Cache tab:
+    peers, round trip times, entries held and live entries.
+  * install-ubuntu.sh --all installs the whole stack in one command:
+    panel + NCam + CardServProxy + cache peer, wired together.
+  * install-ubuntu.sh --install-csp builds the java proxy with plain
+    javac (packaging/build-csp.sh) and configures both sides of the
+    newcamd and cache links.
+  * Fixed: saving a configuration file never worked against a real
+    OSCam/NCam. Their webif looks for a literal "Content-Length: ", so
+    the lower-case header fetch sends made every save time out.
+  * Fixed: every config file was reported read-only, because the webif
+    fills its writable flag before computing it.
+  * Fixed: a softcam with no accounts yet (userstats answers "Invalid
+    client") blanked out the whole dashboard.
+
+ -- CSP Panel contributors <noreply@example.com>  Sun, 05 Oct 2025 04:00:00 +0000
+
 csp-panel (0.3.0) unstable; urgency=medium
 
   * Add the NCam backend (OSCam fork): /ncamapi.html endpoint, <ncam>

@@ -58,6 +58,7 @@ Docker: `docker build -t csp-panel panel && docker run -p 8090:8090 -e BACKEND=o
 | Target | How |
 | --- | --- |
 | **Accounts** | with the CSP backend, the *Accounts* tab creates, edits and deletes the `<user>` entries of proxy.xml (fetch-cfg → edit → /cfgHandler), so client accounts are managed from the panel instead of by hand |
+| **Everything at once** | `curl -fsSL …/install.sh \| sudo bash` — panel + NCam + CardServProxy + cache peer, wired together (`install-ubuntu.sh --all`) |
 | **Cache cluster** | `csp-cache-node` joins the CSP cache cluster over UDP and the Cache tab shows peers, round trip times and live entries |
 | **Ubuntu + NCam from scratch** | `sudo bash packaging/install-ubuntu.sh --install-ncam --backend ncam --yes` — compiles the vendored NCam ([`vendor/ncam`](../vendor/README.md)), installs `ncam.service` with its web interface enabled and points the panel at it |
 | **Ubuntu 20.04/22.04/24.04** | one command: `sudo bash packaging/install-ubuntu.sh --backend oscam\|ncam\|csp` — installs Node if needed, builds and installs the `.deb`, writes `/etc/csp-panel/panel.env`, starts systemd and can configure nginx ([guide in Spanish](packaging/INSTALL.es.md)) |

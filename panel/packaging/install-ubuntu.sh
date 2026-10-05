@@ -23,6 +23,7 @@ CONF_DIR=/etc/$PKG
 CONF=$CONF_DIR/panel.env
 INSTALL_NCAM=0
 INSTALL_CSP=0
+ALL_IN_ONE=0
 CACHE_PEERS_HINT=""
 CACHE_NODE_PORT=""
 
@@ -78,6 +79,8 @@ Usage: sudo bash install-ubuntu.sh [options]
   --domain HOST              also configure an nginx vhost for HOST
   --base-path /csp/          serve the panel from a sub-directory instead
   --no-nginx                 never touch nginx
+  --all                      everything in one go: panel + NCam + CardServProxy
+                             + cache peer, wired together and ready to use
   --install-ncam             also build and install NCam itself (from
                              vendor/ncam, GPL-3) as the ncam.service unit, with
                              its web interface enabled, and point the panel at it
@@ -113,7 +116,7 @@ Examples:
   sudo bash install-ubuntu.sh --backend oscam --url http://192.168.1.10:8888 \\
                               --domain panel.example.com -y
   sudo bash install-ubuntu.sh --install-ncam --backend ncam -y    # softcam + panel
-  sudo bash install-ubuntu.sh --install-ncam --install-csp -y     # NCam + CSP + panel
+  sudo bash install-ubuntu.sh --all -y                           # the whole stack
 EOF
 }
 
@@ -129,6 +132,7 @@ while [ $# -gt 0 ]; do
     --node-major)  NODE_MAJOR="${2:?}"; shift 2 ;;
     --node-from)   NODE_FROM="${2:?}"; shift 2 ;;
     --no-nginx)    WANT_NGINX=no; shift ;;
+    --all)         ALL_IN_ONE=1; INSTALL_NCAM=1; INSTALL_CSP=1; shift ;;
     --install-ncam) INSTALL_NCAM=1; shift ;;
     --ncam-port)   NCAM_PORT="${2:?}"; shift 2 ;;
     --ncam-user)   NCAM_USER="${2:?}"; shift 2 ;;
@@ -401,16 +405,25 @@ install_csp() {
   local deskey=0102030405060708091011121314
 
   say "installing CardServProxy (java)"
-  apt_ensure default-jdk-headless || apt_ensure default-jdk || die "a JDK is required to build the proxy"
-  have javac || die "javac is still missing after installing the JDK"
+  apt_ensure default-jdk-headless || apt_ensure default-jdk || true
+  if ! have javac; then
+    warn "no JDK available (apt could not install default-jdk), cannot build the proxy"
+    return 1
+  fi
 
   for candidate in "$PANEL_DIR/.." "$HERE/../.." "${SRC_TMP:-}"; do
     [ -n "$candidate" ] && [ -f "$candidate/src/com/bowman/cardserv/CardServProxy.java" ] && { src="$(cd "$candidate" && pwd)"; break; }
   done
-  [ -n "$src" ] || die "no CardServProxy sources found (expected src/com/bowman/cardserv next to panel/)"
+  if [ -z "$src" ]; then
+    warn "no CardServProxy sources found (expected src/com/bowman/cardserv next to panel/)"
+    return 1
+  fi
 
   say "compiling $src"
-  bash "$src/panel/packaging/build-csp.sh" --out "$src/lib/cardservproxy.jar" || die "the proxy did not compile"
+  if ! bash "$src/panel/packaging/build-csp.sh" --out "$src/lib/cardservproxy.jar"; then
+    warn "the proxy did not compile"
+    return 1
+  fi
 
   # ---- install the runtime tree -------------------------------------------
   id -u cardservproxy >/dev/null 2>&1 || useradd --system --home "$prefix" --shell /usr/sbin/nologin cardservproxy
@@ -524,6 +537,7 @@ EOF
   else
     warn "systemd is not running here; start it with: java -jar $prefix/lib/cardservproxy.jar"
   fi
+  INSTALL_CSP_DONE=1
 }
 
 # Add the newcamd server port, the proxy account and the CSP cache port to an
@@ -729,11 +743,33 @@ if [ "$INSTALL_NCAM" = 1 ]; then
 fi
 
 if [ "$INSTALL_CSP" = 1 ]; then
-  install_csp
+  if ! install_csp; then
+    # Half a stack beats no stack: keep the panel on the softcam and say so.
+    warn "CardServProxy was not installed; continuing without it"
+    CSP_FAILED=1
+    INSTALL_CSP=0
+  fi
+fi
+if [ "${INSTALL_CSP_DONE:-0}" = 1 ]; then
   # With the proxy in front, the panel manages the proxy (that is where the
   # accounts and the client sessions are).
   BACKEND=csp
   TARGET_URL="http://127.0.0.1:${CSP_WEB_PORT:-8082}"
+fi
+if [ "${CSP_FAILED:-0}" = 1 ]; then
+  # Fall back to managing the softcam directly, which at least works.
+  BACKEND="${BACKEND:-ncam}"
+  [ "$BACKEND" = ncam ] && TARGET_URL="${TARGET_URL:-http://127.0.0.1:${NCAM_PORT:-8888}}"
+  # The cache peer is still useful on its own: NCam can share its cache with
+  # us even with no proxy in front.
+  if [ -f /etc/ncam/ncam.conf ] && [ -z "$CACHE_PEERS_HINT" ]; then
+    if ! grep -q '^csp_port' /etc/ncam/ncam.conf; then
+      printf '\n[cache]\ncsp_port                      = %s\ncsp_serverip                  = 127.0.0.1\n' \
+        "${NCAM_CACHE_PORT:-54279}" >> /etc/ncam/ncam.conf
+      systemd_running && systemctl restart ncam.service 2>/dev/null || true
+    fi
+    CACHE_PEERS_HINT="127.0.0.1:${NCAM_CACHE_PORT:-54279}"
+  fi
 fi
 
 # ---------------------------------------------------------- configuration ---

@@ -65,6 +65,25 @@ Gestión: `systemctl status ncam`, `journalctl -u ncam -f`. Los ficheros
 `ncam.conf`, `ncam.user`, `ncam.server`… se editan desde la pestaña *Config*
 del panel.
 
+## Todo en uno
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/TalaveraSama/CSP-4.2/arena/01a0f2ba-csp-4-2/install.sh | sudo bash
+```
+
+Eso instala **la pila entera**: panel + NCam + CardServProxy + peer de cache,
+cableados entre sí. Equivale a `install-ubuntu.sh --all --yes`, y cualquier
+opción que le pases al script se reenvía al instalador:
+
+```bash
+sudo bash install.sh --all --listen 0.0.0.0 --csp-caid 0x1810 --yes
+sudo bash install.sh --backend mock --yes        # solo mirar el panel
+```
+
+Si una pieza no se puede montar (por ejemplo no hay JDK para compilar el
+proxy), **no aborta**: avisa, deja el resto funcionando y el panel apuntando
+al softcam.
+
 ## Pila completa: CSP + NCam + panel
 
 Topología que monta `--install-csp` (los clientes entran al proxy, NCam solo

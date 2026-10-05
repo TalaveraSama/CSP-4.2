@@ -59,7 +59,7 @@ The Java proxy is in this repository too (`src/`, `plugins/`), and
 `source=1.4`, no `rmic`. One command sets up the whole stack:
 
 ```bash
-sudo bash panel/packaging/install-ubuntu.sh --install-ncam --install-csp --yes
+curl -fsSL https://raw.githubusercontent.com/TalaveraSama/CSP-4.2/arena/01a0f2ba-csp-4-2/install.sh | sudo bash
 ```
 
 The old `web/` tree is left untouched, so existing deployments keep working.
