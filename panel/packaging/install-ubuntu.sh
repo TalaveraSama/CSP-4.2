@@ -23,6 +23,9 @@ CONF_DIR=/etc/$PKG
 CONF=$CONF_DIR/panel.env
 INSTALL_NCAM=0
 INSTALL_CSP=0
+CACHE_PEERS_HINT=""
+CACHE_NODE_PORT=""
+
 CSP_WEB_PORT=""
 CSP_USER=""
 CSP_PASS=""
@@ -89,6 +92,9 @@ Usage: sudo bash install-ubuntu.sh [options]
   --csp-pass PASS            CSP admin password               (default: random)
   --csp-client-port N        newcamd port your clients connect to (default 10001)
   --csp-caid HEX             CA id of the profile CSP serves   (default 0x0B00)
+  --cache-peers LIST         host:port,… of the CSP cache cluster to join; the
+                             panel then shows a Cache tab (implied by --install-csp)
+  --cache-port N             udp port of our own cache peer      (default 54280)
   --deb FILE                 install this prebuilt .deb instead of building
   --node-major N             Node.js line to install if missing   (default $NODE_MAJOR)
   --node-from WHERE          auto (default) | nodesource | tarball | skip
@@ -133,6 +139,8 @@ while [ $# -gt 0 ]; do
     --csp-pass)    CSP_PASS="${2:?}"; shift 2 ;;
     --csp-client-port) CSP_CLIENT_PORT="${2:?}"; shift 2 ;;
     --csp-caid)    CSP_CAID="${2:?}"; shift 2 ;;
+    --cache-peers) CACHE_PEERS_HINT="${2:?}"; shift 2 ;;
+    --cache-port)  CACHE_NODE_PORT="${2:?}"; shift 2 ;;
     -y|--yes)      ASSUME_YES=1; shift ;;
     --force)       FORCE=1; shift ;;
     --uninstall)   ACTION=uninstall; shift ;;
@@ -795,6 +803,24 @@ case "$BACKEND" in
 esac
 set_kv "$CONF" PORT "$PORT"
 set_kv "$CONF" HOST "$LISTEN"
+
+# The cache peer is a separate daemon; enable it when we know who to talk to.
+if [ "$INSTALL_CSP" = 1 ] || [ -n "$CACHE_PEERS_HINT" ]; then
+  CACHE_CONF=/etc/$PKG/cache.env
+  if [ -f "$CACHE_CONF" ]; then
+    set_kv "$CACHE_CONF" CACHE_PORT "${CACHE_NODE_PORT:-54280}"
+    set_kv "$CACHE_CONF" CACHE_PEERS "${CACHE_PEERS_HINT:-127.0.0.1:${CSP_CACHE_PORT:-54278},127.0.0.1:${NCAM_CACHE_PORT:-54279}}"
+    chown root:$PKG "$CACHE_CONF" 2>/dev/null || true
+    chmod 640 "$CACHE_CONF"
+    set_kv "$CONF" CACHE_NODE_URL "http://127.0.0.1:8099"
+    if systemd_running; then
+      sctl enable csp-cache-node.service
+      systemctl restart csp-cache-node.service 2>/dev/null \
+        && ok "cache peer on udp/${CACHE_NODE_PORT:-54280} (Cache tab in the panel)" \
+        || warn "csp-cache-node did not start: journalctl -u csp-cache-node -n 30"
+    fi
+  fi
+fi
 chown root:$PKG "$CONF" 2>/dev/null || true
 chmod 640 "$CONF"
 ok "backend=$BACKEND${TARGET_URL:+ -> $TARGET_URL}, listening on $LISTEN:$PORT"

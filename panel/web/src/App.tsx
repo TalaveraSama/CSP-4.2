@@ -8,6 +8,7 @@ import { Overview } from './pages/Overview';
 import { Connectors } from './pages/Connectors';
 import { Sessions } from './pages/Sessions';
 import { Accounts } from './pages/Accounts';
+import { Cache } from './pages/Cache';
 import { Events } from './pages/Events';
 import { Channels } from './pages/Channels';
 import { Admin } from './pages/Admin';
@@ -21,6 +22,7 @@ const SECTIONS = [
   { id: 'sessions', label: 'Sessions', component: Sessions, admin: false },
   { id: 'channels', label: 'Channels', component: Channels, admin: false },
   { id: 'accounts', label: 'Accounts', component: Accounts, admin: true },
+  { id: 'cache', label: 'Cache', component: Cache, admin: false },
   { id: 'events', label: 'Events', component: Events, admin: false },
   { id: 'logs', label: 'Logs', component: Logs, admin: false },
   { id: 'admin', label: 'Admin', component: Admin, admin: true },
@@ -115,7 +117,10 @@ export function App() {
   // OSCam calls connectors "readers"; keep the wording of whatever we're talking to.
   const label = (id: SectionId, fallback: string) => (id === 'connectors' ? ctx.meta.labels.connectors : fallback);
   const visible = SECTIONS.filter(
-    (s) => (!s.admin || identity.admin) && (s.id !== 'accounts' || ctx.meta.features.accounts),
+    (s) =>
+      (!s.admin || identity.admin) &&
+      (s.id !== 'accounts' || ctx.meta.features.accounts) &&
+      (s.id !== 'cache' || ctx.meta.features.cacheNode),
   );
   const active = visible.find((s) => s.id === route) ?? visible[0]!;
   const Section = active.component;

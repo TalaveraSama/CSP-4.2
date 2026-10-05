@@ -1,4 +1,4 @@
-import type { Account, CspIdentity, StatusSnapshot } from './types';
+import type { Account, CacheReport, CspIdentity, StatusSnapshot } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -49,6 +49,7 @@ export interface Meta {
     connectorServices: boolean;
     seen: boolean;
     accounts: boolean;
+    cacheNode: boolean;
   };
   labels: {
     connectors: string;
@@ -94,6 +95,8 @@ export const api = {
 
   runCommand: (name: string, params: Record<string, string>) =>
     request<CommandResult>(`/commands/${encodeURIComponent(name)}`, { method: 'POST', body: JSON.stringify(params) }),
+
+  cache: () => request<CacheReport>('/cache'),
 
   accounts: () => request<{ accounts: Account[]; writable: boolean }>('/accounts'),
   createAccount: (account: Account) =>

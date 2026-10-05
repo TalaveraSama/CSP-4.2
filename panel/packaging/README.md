@@ -30,6 +30,11 @@ NCam tree (`vendor/ncam`, GPL-3), installs `/usr/local/bin/ncam` plus
 on port 8888 (random password unless `--ncam-pass` is given) and configures the
 panel to manage it.
 
+The package also ships `csp-cache-node`, a standalone peer for the CSP cache
+cluster (UDP, same protocol as CardServProxy's ClusteredCache and NCam's
+`csp_port`), configured in `/etc/csp-panel/cache.env`. Point the panel at it
+with `CACHE_NODE_URL=http://127.0.0.1:8099` and the Cache tab appears.
+
 Spanish step-by-step guide: [`INSTALL.es.md`](INSTALL.es.md).
 
 ## Build

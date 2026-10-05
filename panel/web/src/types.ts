@@ -249,3 +249,33 @@ export interface Account {
   email?: string;
   mapExcluded?: boolean;
 }
+
+export interface CachePeerStats {
+  host: string;
+  port: number;
+  rtt?: number;
+  lastSeen?: number;
+  auto: boolean;
+}
+
+export interface CacheSourceStats {
+  host: string;
+  port: number;
+  replies: number;
+  requests: number;
+  lastSeen: number;
+}
+
+export interface CacheReport {
+  port: number;
+  since: number;
+  entries: number;
+  pending: number;
+  received: { replies: number; requests: number; resends: number; pings: number; invalid: number };
+  sent: { replies: number; pings: number; pongs: number; resends: number };
+  hits: number;
+  misses: number;
+  peers: CachePeerStats[];
+  sources: CacheSourceStats[];
+  entriesList?: { key: string; age: number; origin?: string; from?: string; caId: number; serviceId: number }[];
+}

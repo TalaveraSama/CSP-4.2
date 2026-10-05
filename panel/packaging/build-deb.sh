@@ -92,8 +92,15 @@ exec "$NODE" /usr/lib/csp-panel/server/dist/index.js "$@"
 SH
 chmod 755 "$STAGE/usr/bin/$PKG"
 
+# Second entry point: the cache cluster peer. Same interpreter lookup.
+sed 's:server/dist/index.js:server/dist/cache/node.js:; s:^# Starts the CSP/OSCam web panel.$:# Starts the CSP cache cluster peer.:' \
+  "$STAGE/usr/bin/$PKG" > "$STAGE/usr/bin/csp-cache-node"
+chmod 755 "$STAGE/usr/bin/csp-cache-node"
+
 install -m 644 packaging/csp-panel.service "$STAGE/lib/systemd/system/$PKG.service"
+install -m 644 packaging/csp-cache-node.service "$STAGE/lib/systemd/system/csp-cache-node.service"
 install -m 640 packaging/panel.env         "$STAGE/etc/$PKG/panel.env"
+install -m 640 packaging/cache.env         "$STAGE/etc/$PKG/cache.env"
 
 install -m 644 README.md                                    "$STAGE/usr/share/doc/$PKG/README.md"
 install -m 644 packaging/debian/copyright                   "$STAGE/usr/share/doc/$PKG/copyright"

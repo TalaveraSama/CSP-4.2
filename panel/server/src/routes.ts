@@ -67,7 +67,12 @@ export function createApiRouter(backend: ProxyBackend, sessions: SessionStore, s
   /* --------------------------------------------------------------- meta */
 
   api.get('/meta', (_req, res) => {
-    res.json({ ...backend.info, panel: PANEL_VERSION });
+    res.json({
+      ...backend.info,
+      panel: PANEL_VERSION,
+      // A cache peer is optional and independent of the backend.
+      features: { ...backend.info.features, cacheNode: Boolean(process.env.CACHE_NODE_URL) },
+    });
   });
 
   /* --------------------------------------------------------------- auth */
@@ -315,6 +320,42 @@ export function createApiRouter(backend: ProxyBackend, sessions: SessionStore, s
       const file = await accountsConfig(req);
       const xml = removeAccount(file.content, req.params.name!);
       res.json(await saveAccounts(req, xml, `account ${req.params.name} removed`));
+    }),
+  );
+
+  /* ----------------------------------------------------------- cache node */
+
+  // Optional companion process (csp-cache-node) that sits in the CSP cache
+  // cluster. The panel only reads its stats; it is a separate daemon so that
+  // restarting the panel never disturbs the cache.
+  const cacheNodeUrl = process.env.CACHE_NODE_URL?.replace(/\/$/, '');
+
+  const fromCacheNode = async (path: string) => {
+    if (!cacheNodeUrl) throw new AccountError('no cache node configured (set CACHE_NODE_URL)', 501);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4000);
+    try {
+      const res = await fetch(`${cacheNodeUrl}${path}`, { signal: controller.signal });
+      if (!res.ok) throw new AccountError(`the cache node answered HTTP ${res.status}`, 502);
+      return await res.json();
+    } catch (err) {
+      if (err instanceof AccountError) throw err;
+      throw new AccountError(
+        `cannot reach the cache node at ${cacheNodeUrl}: ${err instanceof Error ? err.message : String(err)}`,
+        502,
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  api.get(
+    '/cache',
+    wrap(async (_req, res) => {
+      const [stats, recent] = await Promise.all([fromCacheNode('/stats'), fromCacheNode('/recent?limit=40')]);
+      // /recent answers { entries: [...] }, and /stats already uses `entries`
+      // for the count: keep both, under names that mean what they say.
+      res.json({ ...(stats as object), entriesList: (recent as { entries?: unknown }).entries ?? [] });
     }),
   );
 

@@ -1,0 +1,22 @@
+[Unit]
+Description=CSP cache cluster peer
+Documentation=file:/usr/share/doc/csp-panel/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=csp-panel
+Group=csp-panel
+EnvironmentFile=/etc/csp-panel/cache.env
+ExecStart=/usr/bin/csp-cache-node
+Restart=always
+RestartSec=5
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
