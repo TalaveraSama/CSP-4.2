@@ -65,6 +65,50 @@ Gestión: `systemctl status ncam`, `journalctl -u ncam -f`. Los ficheros
 `ncam.conf`, `ncam.user`, `ncam.server`… se editan desde la pestaña *Config*
 del panel.
 
+## Pila completa: CSP + NCam + panel
+
+Topología que monta `--install-csp` (los clientes entran al proxy, NCam solo
+ve al proxy, y los dos comparten cache):
+
+```
+   clientes --newcamd--> CSP :10001 --newcamd--> NCam :10000 --> tarjetas
+                           |                        |
+                           +---- cache CSP (udp) ---+
+                          54278                   54279
+```
+
+```bash
+sudo bash panel/packaging/install-ubuntu.sh --install-ncam --install-csp --yes
+```
+
+Hace, por este orden:
+
+1. instala el panel,
+2. compila e instala NCam (`/usr/local/bin/ncam`, `ncam.service`),
+3. instala un JDK, compila el proxy con `panel/packaging/build-csp.sh`
+   (javac directo, sin Ant: el `build.xml` original compila con `source=1.4`,
+   que javac rechaza desde JDK 12, y usa `rmic`, borrado en JDK 15),
+4. escribe `/etc/cardservproxy/proxy.xml`: perfil `ncam`, puerto newcamd para
+   tus clientes, conector hacia NCam, `ClusteredCache` enlazada al `csp_port`
+   de NCam y `status-web` en 127.0.0.1:8082 con una cuenta admin y contraseña
+   aleatoria,
+5. añade a `ncam.conf` lo que falta (`[newcamd] port`, `[cache] csp_port`) y
+   una cuenta `csp` en `ncam.user` para el proxy — sin tocar nada de lo que ya
+   tuvieras,
+6. instala y arranca `cardservproxy.service`,
+7. deja el panel con `BACKEND=csp` apuntando al status-web.
+
+Opciones: `--csp-port`, `--csp-user`, `--csp-pass`, `--csp-client-port`,
+`--csp-caid` (el CAID de tu proveedor, p.ej. `0x0B00`).
+
+Con el proxy delante, **las cuentas de tus clientes se crean en el panel**
+(pestaña *Accounts*): el panel edita los `<user>` de `proxy.xml` y lo reenvía
+por `/cfgHandler`, y el proxy lo recarga. NCam ya no tiene cuentas de cliente.
+
+Gestión: `systemctl status cardservproxy ncam csp-panel`,
+`journalctl -u cardservproxy -f`, log del proxy en
+`/opt/cardservproxy/log/cardservproxy.log`.
+
 ## Qué hace, paso a paso
 
 1. Comprueba que es Ubuntu 20.04, 22.04 o 24.04 (`--force` para Debian 11/12).
@@ -99,6 +143,9 @@ del panel.
 | --- | --- |
 | `--backend oscam\|ncam\|csp\|mock` | qué softcam gestiona el panel (`ncam` = fork de OSCam) |
 | `--install-ncam` | compila e instala NCam (de `vendor/ncam`) y apunta el panel a él |
+| `--install-csp` | compila e instala el proxy java, lo cablea a NCam (conector + cache) y apunta el panel a él |
+| `--csp-port/-user/-pass` | status-web del proxy y su cuenta admin |
+| `--csp-client-port`, `--csp-caid` | puerto newcamd para tus clientes y CAID del perfil |
 | `--ncam-port/-user/-pass` | ajustes del webif de NCam que se crea |
 | `--url URL` | interfaz web del softcam, local o remota (OSCam/NCam `httpport`, CSP status-web) |
 | `--port N` / `--listen ADDR` | dónde escucha el panel (por defecto `127.0.0.1:8090`) |

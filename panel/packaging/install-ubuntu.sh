@@ -22,6 +22,17 @@ case "$SELF" in bash|sh|-bash|-sh|"") SELF="install-ubuntu.sh" ;; esac
 CONF_DIR=/etc/$PKG
 CONF=$CONF_DIR/panel.env
 INSTALL_NCAM=0
+INSTALL_CSP=0
+CSP_WEB_PORT=""
+CSP_USER=""
+CSP_PASS=""
+CSP_CLIENT_PORT=""
+CSP_CAID=""
+CSP_PREFIX=/opt/cardservproxy
+CSP_CACHE_PORT=""
+NCAM_CACHE_PORT=""
+NCAM_NEWCAMD_PORT=""
+
 NCAM_PORT=""
 NCAM_USER=""
 NCAM_PASS=""
@@ -70,6 +81,14 @@ Usage: sudo bash install-ubuntu.sh [options]
   --ncam-port N              NCam web interface port              (default 8888)
   --ncam-user NAME           NCam web interface user              (default admin)
   --ncam-pass PASS           NCam web interface password      (default: random)
+  --install-csp              also build and install the CardServProxy java
+                             proxy, wire it to NCam (newcamd connector + CSP
+                             cache link) and point the panel at it
+  --csp-port N               CSP status-web port                  (default 8082)
+  --csp-user NAME            CSP admin account                   (default admin)
+  --csp-pass PASS            CSP admin password               (default: random)
+  --csp-client-port N        newcamd port your clients connect to (default 10001)
+  --csp-caid HEX             CA id of the profile CSP serves   (default 0x0B00)
   --deb FILE                 install this prebuilt .deb instead of building
   --node-major N             Node.js line to install if missing   (default $NODE_MAJOR)
   --node-from WHERE          auto (default) | nodesource | tarball | skip
@@ -88,6 +107,7 @@ Examples:
   sudo bash install-ubuntu.sh --backend oscam --url http://192.168.1.10:8888 \\
                               --domain panel.example.com -y
   sudo bash install-ubuntu.sh --install-ncam --backend ncam -y    # softcam + panel
+  sudo bash install-ubuntu.sh --install-ncam --install-csp -y     # NCam + CSP + panel
 EOF
 }
 
@@ -107,6 +127,12 @@ while [ $# -gt 0 ]; do
     --ncam-port)   NCAM_PORT="${2:?}"; shift 2 ;;
     --ncam-user)   NCAM_USER="${2:?}"; shift 2 ;;
     --ncam-pass)   NCAM_PASS="${2:?}"; shift 2 ;;
+    --install-csp) INSTALL_CSP=1; shift ;;
+    --csp-port)    CSP_WEB_PORT="${2:?}"; shift 2 ;;
+    --csp-user)    CSP_USER="${2:?}"; shift 2 ;;
+    --csp-pass)    CSP_PASS="${2:?}"; shift 2 ;;
+    --csp-client-port) CSP_CLIENT_PORT="${2:?}"; shift 2 ;;
+    --csp-caid)    CSP_CAID="${2:?}"; shift 2 ;;
     -y|--yes)      ASSUME_YES=1; shift ;;
     --force)       FORCE=1; shift ;;
     --uninstall)   ACTION=uninstall; shift ;;
@@ -346,6 +372,201 @@ EOF
   ok "node $(node -v)"
 fi
 
+# --------------------------------------------------------------- csp build ---
+# Optional: build and install the java proxy, with NCam behind it.
+#
+# Topology this produces:
+#
+#   clients --newcamd--> CSP :10001 --newcamd--> NCam :10000 --> cards
+#                         |                        |
+#                         +---- CSP cache (udp) ---+
+#                        54278                   54279
+#
+# CSP owns the accounts (proxy.xml, editable from the panel's Accounts tab)
+# and NCam only ever sees one user: the proxy itself.
+install_csp() {
+  local web="${CSP_WEB_PORT:-8082}" user="${CSP_USER:-admin}" pass="$CSP_PASS"
+  local client_port="${CSP_CLIENT_PORT:-10001}" caid="${CSP_CAID:-0x0B00}"
+  local cache_local="${CSP_CACHE_PORT:-54278}" cache_remote="${NCAM_CACHE_PORT:-54279}"
+  local ncamd_port="${NCAM_NEWCAMD_PORT:-10000}"
+  local src="" conf=/etc/cardservproxy prefix="$CSP_PREFIX"
+  local deskey=0102030405060708091011121314
+
+  say "installing CardServProxy (java)"
+  apt_ensure default-jdk-headless || apt_ensure default-jdk || die "a JDK is required to build the proxy"
+  have javac || die "javac is still missing after installing the JDK"
+
+  for candidate in "$PANEL_DIR/.." "$HERE/../.." "${SRC_TMP:-}"; do
+    [ -n "$candidate" ] && [ -f "$candidate/src/com/bowman/cardserv/CardServProxy.java" ] && { src="$(cd "$candidate" && pwd)"; break; }
+  done
+  [ -n "$src" ] || die "no CardServProxy sources found (expected src/com/bowman/cardserv next to panel/)"
+
+  say "compiling $src"
+  bash "$src/panel/packaging/build-csp.sh" --out "$src/lib/cardservproxy.jar" || die "the proxy did not compile"
+
+  # ---- install the runtime tree -------------------------------------------
+  id -u cardservproxy >/dev/null 2>&1 || useradd --system --home "$prefix" --shell /usr/sbin/nologin cardservproxy
+  install -d -m 755 "$prefix" "$prefix/lib" "$prefix/log" "$prefix/etc" "$prefix/cache" "$conf"
+  install -m 644 "$src"/lib/*.jar "$prefix/lib/"
+  [ -f "$src/etc/protocol.txt" ] && install -m 644 "$src/etc/protocol.txt" "$prefix/etc/" || true
+  chown -R cardservproxy:cardservproxy "$prefix"
+
+  # ---- proxy.xml -----------------------------------------------------------
+  if [ ! -f "$conf/proxy.xml" ]; then
+    [ -n "$pass" ] || pass="$(head -c 9 /dev/urandom | base64 | tr -d '/+=' | head -c 12)"
+    NCAM_PROXY_PASS="$(head -c 9 /dev/urandom | base64 | tr -d '/+=' | head -c 12)"
+    cat > "$conf/proxy.xml" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Written by the csp-panel installer. Accounts are managed from the panel
+  (Accounts tab), which posts this file back through /cfgHandler.
+-->
+<cardserv-proxy ver="1.0">
+
+  <ca-profiles>
+    <profile name="ncam" ca-id="$caid">
+      <newcamd listen-port="$client_port">
+        <des-key>$deskey</des-key>
+      </newcamd>
+    </profile>
+  </ca-profiles>
+
+  <logging log-ecm="false" log-emm="false" log-zapping="false">
+    <log-file rotate-count="3" rotate-max-size="4096">log/cardservproxy.log</log-file>
+    <log-level>i</log-level>
+  </logging>
+
+  <user-manager class="com.bowman.cardserv.SimpleUserManager" log-failures="true">
+    <auth-config>
+      <user name="$user" password="$pass" admin="true"/>
+    </auth-config>
+  </user-manager>
+
+  <connection-manager>
+    <cws-connectors>
+      <!-- The softcam behind the proxy. -->
+      <newcamd-connector name="ncam" profile="ncam">
+        <host>127.0.0.1</host>
+        <port>$ncamd_port</port>
+        <user>csp</user>
+        <password>$NCAM_PROXY_PASS</password>
+        <des-key>$deskey</des-key>
+      </newcamd-connector>
+    </cws-connectors>
+  </connection-manager>
+
+  <!-- Cache shared with NCam over the CSP protocol (udp). -->
+  <cache-handler class="com.bowman.cardserv.ClusteredCache">
+    <cache-config>
+      <cw-max-age>19</cw-max-age>
+      <max-cache-wait>50%</max-cache-wait>
+      <local-port>$cache_local</local-port>
+      <remote-host>127.0.0.1</remote-host>
+      <remote-port>$cache_remote</remote-port>
+    </cache-config>
+  </cache-handler>
+
+  <rmi enabled="true">
+    <status-web enabled="true">
+      <listen-port>$web</listen-port>
+      <bind-ip>127.0.0.1</bind-ip>
+      <super-users>$user</super-users>
+      <log-file rotate-count="2" rotate-max-size="2048">log/web-access.log</log-file>
+    </status-web>
+  </rmi>
+
+</cardserv-proxy>
+EOF
+    chmod 640 "$conf/proxy.xml"
+    chown root:cardservproxy "$conf/proxy.xml"
+    CSP_CREDENTIALS="$user / $pass"
+    ok "wrote $conf/proxy.xml (clients on newcamd $client_port, status-web $web)"
+  else
+    web="$(sed -n 's:.*<listen-port>\([0-9]*\)</listen-port>.*:\1:p' "$conf/proxy.xml" | head -1)"
+    web="${web:-8082}"
+    ok "keeping the existing $conf/proxy.xml (status-web $web)"
+  fi
+  CSP_WEB_PORT="$web"
+
+  # The proxy reads proxy.xml from its working dir; keep the real file in /etc.
+  ln -sfn "$conf/proxy.xml" "$prefix/proxy.xml"
+
+  # ---- teach NCam about the proxy ------------------------------------------
+  if [ -f /etc/ncam/ncam.conf ]; then
+    configure_ncam_for_csp "$ncamd_port" "$cache_remote" "$cache_local" "$deskey"
+  else
+    warn "no /etc/ncam/ncam.conf: add a newcamd port and 'csp_port = $cache_remote' to your softcam by hand"
+  fi
+
+  install -m 644 "$HERE/cardservproxy.service" /lib/systemd/system/cardservproxy.service 2>/dev/null \
+    || install -m 644 "$PANEL_DIR/packaging/cardservproxy.service" /lib/systemd/system/cardservproxy.service
+  if systemd_running; then
+    sctl daemon-reload
+    sctl enable cardservproxy.service
+    systemctl restart cardservproxy.service || warn "cardservproxy.service did not start: journalctl -u cardservproxy -n 40"
+    for _ in $(seq 1 30); do
+      ss -lnt 2>/dev/null | grep -q ":${web}\b" && break
+      sleep 0.5
+    done
+    if ss -lnt 2>/dev/null | grep -q ":${web}\b"; then
+      ok "cardservproxy.service listening on 127.0.0.1:${web}"
+    else
+      warn "CSP is installed but its status-web is not answering on ${web} yet"
+    fi
+  else
+    warn "systemd is not running here; start it with: java -jar $prefix/lib/cardservproxy.jar"
+  fi
+}
+
+# Add the newcamd server port, the proxy account and the CSP cache port to an
+# existing ncam.conf/ncam.user, without disturbing anything already there.
+configure_ncam_for_csp() {
+  local ncamd_port="$1" csp_port="$2" csp_peer="$3" deskey="$4"
+  local conf=/etc/ncam/ncam.conf users=/etc/ncam/ncam.user changed=0
+
+  if ! grep -q '^\[newcamd\]' "$conf"; then
+    cat >> "$conf" <<EOF
+
+[newcamd]
+port                          = ${ncamd_port}@0000:000000
+key                           = $deskey
+EOF
+    changed=1
+  fi
+
+  if ! grep -q '^csp_port' "$conf"; then
+    if grep -q '^\[cache\]' "$conf"; then
+      sed -i "/^\[cache\]/a csp_port                      = ${csp_port}\ncsp_serverip                  = 127.0.0.1" "$conf"
+    else
+      cat >> "$conf" <<EOF
+
+[cache]
+csp_port                      = ${csp_port}
+csp_serverip                  = 127.0.0.1
+EOF
+    fi
+    changed=1
+  fi
+
+  if [ -n "${NCAM_PROXY_PASS:-}" ] && ! grep -q '^user *= *csp$' "$users" 2>/dev/null; then
+    cat >> "$users" <<EOF
+
+[account]
+user                          = csp
+pwd                           = $NCAM_PROXY_PASS
+group                         = 1
+EOF
+    changed=1
+  fi
+
+  if [ "$changed" = 1 ]; then
+    ok "ncam.conf/ncam.user updated: newcamd ${ncamd_port}, csp cache port ${csp_port}"
+    systemd_running && systemctl restart ncam.service 2>/dev/null || true
+  else
+    ok "ncam already has a newcamd port and a csp cache port"
+  fi
+}
+
 # -------------------------------------------------------------- ncam build ---
 # Optional: build and install the softcam itself from vendor/ncam (or straight
 # from upstream when this script runs standalone).
@@ -499,6 +720,14 @@ if [ "$INSTALL_NCAM" = 1 ]; then
   [ "$BACKEND" = ncam ] && TARGET_URL="${TARGET_URL:-http://127.0.0.1:${NCAM_PORT:-8888}}"
 fi
 
+if [ "$INSTALL_CSP" = 1 ]; then
+  install_csp
+  # With the proxy in front, the panel manages the proxy (that is where the
+  # accounts and the client sessions are).
+  BACKEND=csp
+  TARGET_URL="http://127.0.0.1:${CSP_WEB_PORT:-8082}"
+fi
+
 # ---------------------------------------------------------- configuration ---
 say "configuring $CONF"
 
@@ -649,7 +878,10 @@ ${BOLD}csp-panel is installed.${OFF}
   status     systemctl status $SERVICE
   logs       journalctl -u $SERVICE -f
   remove     sudo bash $SELF --uninstall   ${DIM}(--purge to drop the config too)${OFF}
-${NCAM_CREDENTIALS:+
+${CSP_CREDENTIALS:+
+  ${BOLD}CSP login: ${CSP_CREDENTIALS}${OFF}
+  ${DIM}(admin account in /etc/cardservproxy/proxy.xml — use it to log into the panel)${OFF}
+}${NCAM_CREDENTIALS:+
   ${BOLD}NCam webif login: ${NCAM_CREDENTIALS}${OFF}
   ${DIM}(stored in /etc/ncam/ncam.conf — use it to log into the panel)${OFF}
 }

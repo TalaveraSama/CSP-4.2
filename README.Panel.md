@@ -54,4 +54,12 @@ on a clean Ubuntu box:
 sudo bash panel/packaging/install-ubuntu.sh --install-ncam --backend ncam --yes
 ```
 
+The Java proxy is in this repository too (`src/`, `plugins/`), and
+`panel/packaging/build-csp.sh` builds it with plain javac — no Ant, no
+`source=1.4`, no `rmic`. One command sets up the whole stack:
+
+```bash
+sudo bash panel/packaging/install-ubuntu.sh --install-ncam --install-csp --yes
+```
+
 The old `web/` tree is left untouched, so existing deployments keep working.

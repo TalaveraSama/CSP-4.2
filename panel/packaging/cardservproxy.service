@@ -1,0 +1,27 @@
+[Unit]
+Description=CardServProxy (CSP)
+Documentation=file:/opt/cardservproxy/README.txt
+After=network-online.target ncam.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cardservproxy
+Group=cardservproxy
+WorkingDirectory=/opt/cardservproxy
+# -Dsun.net.inetaddr.ttl=0 keeps the JVM from caching DNS forever, which
+# matters for peers on dynamic addresses (same flag as the stock cardproxy.sh).
+ExecStart=/usr/bin/java -Dsun.net.inetaddr.ttl=0 -Xmx256m -jar /opt/cardservproxy/lib/cardservproxy.jar
+Restart=always
+RestartSec=5
+LimitNOFILE=8192
+
+# The proxy only needs its own directory.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/cardservproxy /etc/cardservproxy
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,12 @@
+# java build output (ant and panel/packaging/build-csp.sh)
+/classes/
+/build/
+/dist/
+/lib/cardservproxy.jar
+/lib/fishenc.jar
+/log/
+*.class
+
+# runtime
+/cardservproxy.pid
+/etc/proxy.xml

@@ -42,8 +42,28 @@ const FIELDS: ReadonlyArray<readonly [keyof Account, string, 'string' | 'number'
   ['mapExcluded', 'map-exclude', 'boolean'],
 ];
 
-/** `<user .../>` or `<user ...> ... </user>`, including the leading indent. */
-const USER_RE = /([ \t]*)<user\b([^>]*?)(\/>|>[\s\S]*?<\/user>)/g;
+/**
+ * `<user .../>` or `<user ...> ... </user>`, including the leading indent.
+ *
+ * The lookahead matters: `<user\b` also matches `<user-manager>` (a hyphen is
+ * a word boundary), and the greedy close would then swallow every account
+ * inside it.
+ */
+const USER_RE = /([ \t]*)<user(?=[\s/>])([^>]*?)(\/>|>[\s\S]*?<\/user\s*>)/g;
+
+/** `<user-manager>…</user-manager>`, the only place accounts may live. */
+const MANAGER_RE = /<user-manager\b[\s\S]*?<\/user-manager\s*>/;
+
+/**
+ * Accounts are only looked for inside <user-manager>. proxy.xml has other
+ * `<user>` elements — the credentials of every newcamd-connector, for one —
+ * and inserting an account next to those would quietly break the proxy.
+ */
+function managerRegion(xml: string): { start: number; end: number; text: string } | undefined {
+  const m = MANAGER_RE.exec(xml);
+  if (!m) return undefined;
+  return { start: m.index, end: m.index + m[0].length, text: m[0] };
+}
 
 export class AccountError extends Error {
   constructor(
@@ -115,8 +135,10 @@ function toElement(account: Account): string {
 }
 
 export function listAccounts(xml: string): Account[] {
+  const region = managerRegion(xml);
+  if (!region) return [];
   const out: Account[] = [];
-  for (const match of xml.matchAll(USER_RE)) {
+  for (const match of region.text.matchAll(USER_RE)) {
     const account = toAccount(match[2] ?? '');
     if (account) out.push(account);
   }
@@ -146,13 +168,22 @@ function validate(account: Account): void {
 export function upsertAccount(xml: string, account: Account, { create }: { create: boolean }): string {
   validate(account);
 
-  const existing = [...xml.matchAll(USER_RE)];
+  const region = managerRegion(xml);
+  if (!region) {
+    throw new AccountError(
+      'proxy.xml has no <user-manager> section, so there is nowhere to store accounts. ' +
+        'Add one (class="com.bowman.cardserv.SimpleUserManager") and try again.',
+      409,
+    );
+  }
+
+  const existing = [...region.text.matchAll(USER_RE)].filter((m) => attrs(m[2] ?? '').name);
   const match = existing.find((m) => attrs(m[2] ?? '').name === account.name);
 
   if (match) {
     if (create) throw new AccountError(`the account "${account.name}" already exists`, 409);
     const indent = match[1] ?? '';
-    const start = match.index! + indent.length;
+    const start = region.start + match.index! + indent.length;
     return xml.slice(0, start) + toElement(account) + xml.slice(start + match[0].length - indent.length);
   }
 
@@ -161,28 +192,24 @@ export function upsertAccount(xml: string, account: Account, { create }: { creat
   const last = existing[existing.length - 1];
   if (last) {
     const indent = last[1] ?? '';
-    const end = last.index! + last[0].length;
+    const end = region.start + last.index! + last[0].length;
     return `${xml.slice(0, end)}\n${indent}${toElement(account)}${xml.slice(end)}`;
   }
 
-  // First account: put it inside <user-manager>, which is where CSP's
+  // First account: right before </user-manager>, which is where CSP's
   // SimpleUserManager/XmlUserManager look for them.
-  const anchor = /([ \t]*)<\/user-manager>/.exec(xml);
-  if (!anchor) {
-    throw new AccountError(
-      'proxy.xml has no <user-manager> section, so there is nowhere to store accounts. ' +
-        'Add one (class="com.bowman.cardserv.SimpleUserManager") and try again.',
-      409,
-    );
-  }
+  const anchor = /([ \t]*)<\/user-manager\s*>/.exec(region.text)!;
+  const at = region.start + anchor.index;
   const indent = `${anchor[1] ?? ''}  `;
-  return `${xml.slice(0, anchor.index)}${indent}${toElement(account)}\n${xml.slice(anchor.index)}`;
+  return `${xml.slice(0, at)}${indent}${toElement(account)}\n${xml.slice(at)}`;
 }
 
 export function removeAccount(xml: string, name: string): string {
-  for (const match of xml.matchAll(USER_RE)) {
+  const region = managerRegion(xml);
+  if (!region) throw new AccountError(`there is no account called "${name}"`, 404);
+  for (const match of region.text.matchAll(USER_RE)) {
     if (attrs(match[2] ?? '').name !== name) continue;
-    const start = match.index!;
+    const start = region.start + match.index!;
     let end = start + match[0].length;
     // Swallow the line break that followed the element, so no blank line is left.
     if (xml.startsWith('\r\n', end)) end += 2;
