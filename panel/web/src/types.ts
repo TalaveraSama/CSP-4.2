@@ -226,6 +226,10 @@ export interface StatusSnapshot {
 }
 
 export interface CspIdentity {
+  /** 'reseller' sessions only see their own clients. */
+  role?: 'admin' | 'reseller';
+  /** Credits left, for a reseller session. */
+  credits?: number;
   user: string;
   admin: boolean;
   superUser: boolean;
@@ -250,6 +254,8 @@ export interface Account {
   mapExcluded?: boolean;
   group?: string;
   expiry?: string;
+  /** Only when creating: how many months to charge a reseller for. */
+  months?: number;
 }
 
 export interface CachePeerStats {
@@ -280,4 +286,22 @@ export interface CacheReport {
   peers: CachePeerStats[];
   sources: CacheSourceStats[];
   entriesList?: { key: string; age: number; origin?: string; from?: string; caId: number; serviceId: number }[];
+}
+
+export interface Reseller {
+  id: string;
+  user: string;
+  credits: number;
+  enabled: boolean;
+  note?: string;
+  createdAt: string;
+  clients: number;
+}
+
+export interface LedgerEntry {
+  ts: string;
+  reseller: string;
+  delta: number;
+  balance: number;
+  reason: string;
 }

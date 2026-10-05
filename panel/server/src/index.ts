@@ -11,6 +11,7 @@ import { HttpOscamTransport } from './oscam/http.js';
 import { MockOscamTransport } from './oscam/mock.js';
 import { createApiRouter } from './routes.js';
 import { SessionStore } from './sessions.js';
+import { ResellerStore } from './resellers.js';
 
 const targetUrl =
   config.backend === 'oscam' ? config.oscamUrl : config.backend === 'ncam' ? config.ncamUrl : config.cspUrl;
@@ -34,6 +35,16 @@ function createBackend(): ProxyBackend {
 const backend = createBackend();
 const sessions = new SessionStore(config.sessionTtlMs);
 
+// The panel's own users (resellers) and who owns which client. Optional: with
+// no writable path there is simply no reseller support.
+const resellersPath = process.env.RESELLERS_FILE ?? '/etc/csp-panel/resellers.json';
+let resellers: ResellerStore | undefined;
+try {
+  resellers = new ResellerStore(resellersPath);
+} catch (err) {
+  console.warn(`[csp-panel] resellers disabled: ${err instanceof Error ? err.message : String(err)}`);
+}
+
 const app = express();
 app.disable('x-powered-by');
 // Behind aaPanel/nginx the real scheme and ip arrive in X-Forwarded-*.
@@ -47,7 +58,7 @@ app.get('/healthz', (_req, res) => {
   res.json({ ok: true, backend: backend.info.kind, mock: backend.info.mock, target: backend.info.target });
 });
 
-app.use('/api', createApiRouter(backend, sessions, config.secureCookies));
+app.use('/api', createApiRouter(backend, sessions, config.secureCookies, resellers));
 
 // Serve the built SPA when it exists (single-artifact deployment).
 const webRoot = config.webRoot;

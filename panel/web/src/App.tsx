@@ -9,6 +9,7 @@ import { Connectors } from './pages/Connectors';
 import { Sessions } from './pages/Sessions';
 import { Accounts } from './pages/Accounts';
 import { Cache } from './pages/Cache';
+import { Resellers } from './pages/Resellers';
 import { Events } from './pages/Events';
 import { Channels } from './pages/Channels';
 import { Admin } from './pages/Admin';
@@ -22,6 +23,7 @@ const SECTIONS = [
   { id: 'sessions', label: 'Sessions', component: Sessions, admin: false },
   { id: 'channels', label: 'Channels', component: Channels, admin: false },
   { id: 'accounts', label: 'Accounts', component: Accounts, admin: true },
+  { id: 'resellers', label: 'Resellers', component: Resellers, admin: true },
   { id: 'cache', label: 'Cache', component: Cache, admin: false },
   { id: 'events', label: 'Events', component: Events, admin: false },
   { id: 'logs', label: 'Logs', component: Logs, admin: false },
@@ -116,12 +118,19 @@ export function App() {
 
   // OSCam calls connectors "readers"; keep the wording of whatever we're talking to.
   const label = (id: SectionId, fallback: string) => (id === 'connectors' ? ctx.meta.labels.connectors : fallback);
-  const visible = SECTIONS.filter(
-    (s) =>
+  // A reseller only gets his own customers; everything else is the operator's
+  // business, not his.
+  const reseller = identity.role === 'reseller';
+  const forReseller = new Set(['accounts', 'sessions']);
+  const visible = SECTIONS.filter((s) => {
+    if (reseller) return forReseller.has(s.id);
+    return (
       (!s.admin || identity.admin) &&
       (s.id !== 'accounts' || ctx.meta.features.accounts) &&
-      (s.id !== 'cache' || ctx.meta.features.cacheNode),
-  );
+      (s.id !== 'cache' || ctx.meta.features.cacheNode) &&
+      (s.id !== 'resellers' || ctx.meta.features.accounts)
+    );
+  });
   const active = visible.find((s) => s.id === route) ?? visible[0]!;
   const Section = active.component;
 

@@ -24,6 +24,8 @@ CONF=$CONF_DIR/panel.env
 INSTALL_NCAM=0
 INSTALL_CSP=0
 READER_URL=""
+NEW_CREDITS=0
+
 READER_LABEL=""
 READER_GROUP=""
 
@@ -132,6 +134,10 @@ Usage: sudo bash install-ubuntu.sh [options]
   --reset-password [PASS]    give the panel admin account a new password
                              (random when PASS is omitted)
   --add-user NAME [PASS]     add a client account (CSP proxy.xml or ncam.user)
+  --add-reseller NAME [PASS] [CREDITS]
+                             create a reseller: his own panel login, his own
+                             clients and a credit balance (1 credit = 1 month
+                             of one line)
   --add-reader URL           add a card source to ncam.server, e.g.
                              cccam://user:pass@host:12000 or
                              newcamd://user:pass@host:10000?key=0102...14
@@ -191,6 +197,7 @@ while [ $# -gt 0 ]; do
     --credentials) ACTION=credentials; shift ;;
     --migrate-users) ACTION=migrate; shift ;;
     --reset-password) ACTION=reset; NEW_PASSWORD="${2:-}"; [ -n "${2:-}" ] && shift; shift ;;
+    --add-reseller) ACTION=addreseller; NEW_USER="${2:?--add-reseller needs a name}"; NEW_PASSWORD="${3:-}"; NEW_CREDITS="${4:-0}"; shift 2; [ -n "${NEW_PASSWORD:-}" ] && shift || true; [ "${NEW_CREDITS:-0}" != 0 ] && shift || true ;;
     --add-user)    ACTION=adduser; NEW_USER="${2:?--add-user needs a name}"; NEW_PASSWORD="${3:-}"; shift 2; [ -n "${NEW_PASSWORD:-}" ] && shift || true ;;
     --uninstall)   ACTION=uninstall; shift ;;
     --purge)       ACTION=purge; shift ;;
@@ -751,6 +758,77 @@ remove_csp() {
   fi
 }
 
+# -------------------------------------------------------------- resellers ---
+# A reseller is a panel user (not a softcam one) who sells lines out of a
+# credit balance and only ever sees his own clients.
+add_reseller() {
+  local store=/etc/$PKG/resellers.json
+  local pass="${NEW_PASSWORD:-$(random_password)}" credits="${NEW_CREDITS:-0}"
+
+  # Resellers have no account on the softcam, so the panel needs credentials
+  # of its own to work on their behalf.
+  if ! grep -q '^BACKEND_USER=' "$CONF" 2>/dev/null; then
+    local bu bp
+    if [ "$(panel_backend)" = csp ] && [ -f "$CSP_CONF" ]; then
+      bu=$(grep -o '<user [^>]*admin="true"[^>]*/>' "$CSP_CONF" | head -1 | sed -n 's/.*name="\([^"]*\)".*/\1/p')
+      bp=$(grep -o '<user [^>]*admin="true"[^>]*/>' "$CSP_CONF" | head -1 | sed -n 's/.*password="\([^"]*\)".*/\1/p')
+    elif [ -f "$NCAM_CONF" ]; then
+      bu="$(ini_get "$NCAM_CONF" httpuser)"; bp="$(ini_get "$NCAM_CONF" httppwd)"
+    fi
+    if [ -n "${bu:-}" ] && [ -n "${bp:-}" ]; then
+      set_kv "$CONF" BACKEND_USER "$bu"
+      set_kv "$CONF" BACKEND_PASS "$bp"
+      ok "panel.env: BACKEND_USER/BACKEND_PASS set from your softcam configuration"
+    else
+      warn "could not find softcam credentials; set BACKEND_USER/BACKEND_PASS in $CONF by hand"
+    fi
+  fi
+
+  python3 - "$store" "$NEW_USER" "$pass" "$credits" <<'PY'
+import hashlib, json, os, secrets, sys, uuid
+from datetime import datetime, timezone
+
+path, user, password, credits = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
+
+try:
+    db = json.load(open(path))
+except FileNotFoundError:
+    db = {"version": 1, "resellers": [], "clients": {}, "ledger": []}
+
+if any(r["user"].lower() == user.lower() for r in db["resellers"]):
+    sys.exit(f'the reseller "{user}" already exists')
+
+# scrypt with the same parameters node uses by default (N=16384, r=8, p=1).
+salt = secrets.token_hex(16)
+digest = hashlib.scrypt(password.encode(), salt=salt.encode(), n=16384, r=8, p=1, maxmem=64 * 1024 * 1024, dklen=32).hex()
+
+now = datetime.now(timezone.utc).isoformat()
+db["resellers"].append({
+    "id": str(uuid.uuid4()),
+    "user": user,
+    "password": f"{salt}:{digest}",
+    "credits": credits,
+    "enabled": True,
+    "createdAt": now,
+})
+if credits:
+    db["ledger"].append({"ts": now, "reseller": user, "delta": credits, "balance": credits, "reason": "initial balance"})
+
+tmp = path + ".tmp"
+os.makedirs(os.path.dirname(path), exist_ok=True)
+with open(tmp, "w") as fh:
+    json.dump(db, fh, indent=2)
+os.replace(tmp, path)
+os.chmod(path, 0o640)
+print(f"{user} / {password} ({credits} credit(s))")
+PY
+  local rc=$?
+  [ $rc -eq 0 ] || exit $rc
+  chown root:$PKG "$store" 2>/dev/null || true
+  systemd_running && systemctl restart "$SERVICE" 2>/dev/null || true
+  ok "reseller created; he logs into the panel with that user and password"
+}
+
 case "$ACTION" in
   status)      show_status;      exit 0 ;;
   clients)     serve_clients;    exit 0 ;;
@@ -760,6 +838,7 @@ case "$ACTION" in
   addreader)   add_reader;      exit 0 ;;
   reset)       reset_password;  exit 0 ;;
   adduser)     add_user;        exit 0 ;;
+  addreseller) add_reseller;    exit 0 ;;
 esac
 
 if [ "$ACTION" != install ]; then

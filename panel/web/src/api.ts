@@ -1,4 +1,4 @@
-import type { Account, CacheReport, CspIdentity, StatusSnapshot } from './types';
+import type { Account, CacheReport, CspIdentity, LedgerEntry, Reseller, StatusSnapshot } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -98,14 +98,32 @@ export const api = {
 
   cache: () => request<CacheReport>('/cache'),
 
-  accounts: () => request<{ accounts: Account[]; writable: boolean; source: string; kind: 'xml' | 'ini' }>('/accounts'),
-  createAccount: (account: Account) =>
+  resellers: () => request<{ resellers: Reseller[]; ledger: LedgerEntry[] }>('/resellers'),
+  createReseller: (body: { user: string; password: string; credits?: number; note?: string }) =>
+    request<CommandResult>('/resellers', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  updateReseller: (id: string, body: { password?: string; enabled?: boolean; note?: string; credits?: number }) =>
+    request<CommandResult>(`/resellers/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  deleteReseller: (id: string) => request<CommandResult>(`/resellers/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  accounts: () =>
+    request<{ accounts: Account[]; writable: boolean; source: string; kind: 'xml' | 'ini'; credits?: number }>(
+      '/accounts',
+    ),
+  createAccount: (account: Account & { months?: number }) =>
     request<CommandResult>('/accounts', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(account),
     }),
-  updateAccount: (name: string, account: Partial<Account>) =>
+  updateAccount: (name: string, account: Partial<Account> & { renew?: number }) =>
     request<CommandResult>(`/accounts/${encodeURIComponent(name)}`, {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },

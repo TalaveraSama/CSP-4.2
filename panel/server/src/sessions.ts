@@ -7,6 +7,10 @@ export interface PanelSession extends CspIdentity {
   auth: CspAuth;
   createdAt: number;
   lastSeen: number;
+  /** 'reseller' sessions are the panel's own users; everyone else is admin. */
+  role?: 'admin' | 'reseller';
+  /** Which reseller, when role is 'reseller'. */
+  resellerId?: string;
 }
 
 /**

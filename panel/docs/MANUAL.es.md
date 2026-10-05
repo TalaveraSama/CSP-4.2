@@ -183,6 +183,40 @@ lectores. `--remove-csp` para el proxy, lo deshabilita y **devuelve el panel a
 NCam** para que no te quedes sin acceso; su configuración se conserva por si
 lo quieres de vuelta.
 
+## 5c. Resellers
+
+El panel puede tener **sus propios usuarios** además de los del softcam: los
+resellers. Cada uno entra con su contraseña, ve **solo sus clientes** y vende
+contra un saldo de créditos.
+
+**1 crédito = 1 mes de una línea.** Dar de alta a un cliente por 3 meses
+cuesta 3 créditos; renovarlo 1 mes, 1 crédito. Borrar **no devuelve** créditos
+(si no, se reciclarían borrando y creando).
+
+```bash
+sudo bash panel/packaging/install-ubuntu.sh --add-reseller juan miclave 50
+```
+
+Eso crea el reseller con 50 créditos y, si hace falta, rellena
+`BACKEND_USER`/`BACKEND_PASS` en `panel.env` (las credenciales del softcam que
+el panel usa en nombre de los resellers, que no tienen cuenta en él).
+
+| | Administrador | Reseller |
+| --- | --- | --- |
+| Pestañas | todas | *Accounts* y *Sessions* |
+| Cuentas que ve | todas | solo las suyas |
+| Crear, renovar, editar, borrar | sí, gratis | sí, descontando créditos |
+| Créditos, resellers, config, cache | sí | no |
+
+Desde la pestaña **Resellers** (solo admin) creas resellers, les recargas
+créditos, les cambias la contraseña, los habilitas o deshabilitas y ves el
+**historial de movimientos**. Si borras un reseller, sus clientes **no se
+cortan**: pasan a ser tuyos.
+
+La caducidad la lleva el panel en `/etc/csp-panel/resellers.json`, así que
+funciona igual aunque el backend no tenga campo de expiración; en NCam además
+se escribe `expdate` en la cuenta.
+
 ## 6. Lectores (las tarjetas y las líneas)
 
 Siempre en NCam: el proxy no habla con tarjetas ni con servidores remotos.
@@ -269,6 +303,7 @@ sudo bash panel/packaging/install-ubuntu.sh --cache-peers 10.8.0.2:54278,127.0.0
 | `--reset-password [CLAVE]` | nueva contraseña para entrar al panel |
 | `--add-user NOMBRE [CLAVE]` | alta de cliente |
 | `--add-reader URL` | añade una línea cccam/newcamd a `ncam.server` |
+| `--add-reseller NOMBRE [CLAVE] [CRÉDITOS]` | crea un reseller con su saldo |
 | `--migrate-users` | saca las cuentas de `proxy.xml` a `users.xml` |
 | `--uninstall` / `--purge` | quita el paquete (conservando o no la configuración) |
 
@@ -314,6 +349,7 @@ sudo tail -f /opt/cardservproxy/log/cardservproxy.log
 | --- | --- |
 | `/etc/csp-panel/panel.env` | configuración del panel |
 | `/etc/csp-panel/cache.env` | configuración del peer de cache |
+| `/etc/csp-panel/resellers.json` | resellers, créditos, dueño y caducidad de cada cliente |
 | `/etc/ncam/ncam.conf` | NCam: webif, cache, puertos |
 | `/etc/ncam/ncam.user` | cuentas de NCam (con proxy, solo `csp`) |
 | `/etc/ncam/ncam.server` | lectores: tarjeta, cccam, newcamd |
@@ -371,6 +407,8 @@ curl -s -b /tmp/cs -X POST -H 'content-type: application/json' \
 | GET/PUT | `/api/config?file=…` | leer y guardar ficheros de configuración (admin) |
 | GET/POST | `/api/accounts` | listar y crear cuentas (admin) |
 | PUT/DELETE | `/api/accounts/:name` | editar y borrar (admin) |
+| GET/POST | `/api/resellers` | listar y crear resellers (admin) |
+| PUT/DELETE | `/api/resellers/:id` | recargar créditos, cambiar clave, habilitar, borrar |
 | GET | `/api/cache` | estado del cluster de cache |
 | GET | `/healthz` | sin sesión: `{"ok":true,…}` para monitorización |
 

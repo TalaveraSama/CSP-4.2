@@ -2,10 +2,16 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
 import { useApp } from '../app-context';
 import { usePolling } from '../hooks';
-import { Badge, Card, Empty, ErrorBox } from '../components/ui';
+import { Badge, Card, Empty, ErrorBox, Stat } from '../components/ui';
 import type { Account } from '../types';
 
 const BLANK: Account = { name: '', password: '', profiles: '', ipMask: '', enabled: true };
+
+/** Days left, or null when the line has no expiry. */
+function daysLeft(expiry?: string): number | null {
+  if (!expiry) return null;
+  return Math.ceil((new Date(`${expiry}T23:59:59`).getTime() - Date.now()) / 86_400_000);
+}
 
 /** Accounts live in proxy.xml; every change is a fetch / edit / post round trip. */
 export function Accounts() {
@@ -55,6 +61,17 @@ export function Accounts() {
   const save = (account: Account) =>
     run(() => (creating ? api.createAccount(account) : api.updateAccount(account.name, account)));
 
+  const renew = (name: string) => {
+    const months = prompt(`Renew "${name}" for how many months?`, '1');
+    if (months === null) return;
+    const n = Number(months);
+    if (!Number.isInteger(n) || n < 1) {
+      setFailure('give a whole number of months');
+      return;
+    }
+    void run(() => api.updateAccount(name, { renew: n }));
+  };
+
   const remove = (name: string) => {
     if (!confirm(`Delete the account "${name}"? Its sessions will be dropped on the next reload.`)) return;
     void run(() => api.deleteAccount(name));
@@ -66,11 +83,31 @@ export function Accounts() {
   const accounts = data.accounts;
   // proxy.xml speaks of profiles and admins, ncam.user of groups and expiry.
   const ini = data.kind === 'ini';
+  const credits = data.credits;
 
   return (
     <>
       {notice && <div className="notice">{notice}</div>}
       {failure && <div className="errorbox">{failure}</div>}
+
+      {credits !== undefined && (
+        <div className="stats">
+          <Stat
+            label="Credits left"
+            value={credits}
+            sub="1 credit = 1 month of one line"
+            tone={credits > 10 ? 'ok' : credits > 0 ? 'warn' : 'bad'}
+          />
+          <Stat label="Your clients" value={accounts.length} />
+          <Stat
+            label="Expiring in 7 days"
+            value={accounts.filter((a) => {
+              const d = daysLeft(a.expiry);
+              return d !== null && d >= 0 && d <= 7;
+            }).length}
+          />
+        </div>
+      )}
 
       <Card
         title={`Accounts (${accounts.length})`}
@@ -102,6 +139,7 @@ export function Accounts() {
                 <th>{ini ? 'Groups' : 'Profiles'}</th>
                 <th>{ini ? 'Host' : 'IP mask'}</th>
                 <th className="r">Max conn.</th>
+                <th>Expires</th>
                 <th>Flags</th>
                 <th />
               </tr>
@@ -116,6 +154,20 @@ export function Accounts() {
                   <td>{(ini ? a.group : a.profiles) || <span className="muted">all</span>}</td>
                   <td>{a.ipMask || <span className="muted">any</span>}</td>
                   <td className="r">{a.maxConnections ?? '—'}</td>
+                  <td className="nowrap">
+                    {(() => {
+                      const d = daysLeft(a.expiry);
+                      if (d === null) return <span className="muted">never</span>;
+                      return (
+                        <>
+                          <span className="muted small">{a.expiry}</span>{' '}
+                          <Badge tone={d < 0 ? 'bad' : d <= 7 ? 'warn' : 'ok'}>
+                            {d < 0 ? 'expired' : `${d}d`}
+                          </Badge>
+                        </>
+                      );
+                    })()}
+                  </td>
                   <td className="nowrap">
                     {a.admin && <Badge tone="info">admin</Badge>}
                     {a.expiry && <Badge tone="neutral">until {a.expiry}</Badge>}
@@ -132,6 +184,9 @@ export function Accounts() {
                       }}
                     >
                       Edit
+                    </button>
+                    <button className="mini" disabled={busy} onClick={() => renew(a.name)}>
+                      Renew
                     </button>
                     <button className="mini danger" disabled={busy} onClick={() => remove(a.name)}>
                       Delete
@@ -184,7 +239,7 @@ function AccountForm({
   onCancel: () => void;
   onSave: (a: Account) => void;
 }) {
-  const [form, setForm] = useState<Account>(account);
+  const [form, setForm] = useState<Account & { months?: number }>({ ...account, months: 1 });
   const set = <K extends keyof Account>(key: K, value: Account[K]) => setForm((f) => ({ ...f, [key]: value }));
 
   return (
@@ -251,6 +306,18 @@ function AccountForm({
             placeholder="unlimited"
           />
         </label>
+        {creating && (
+          <label className="cmdparam">
+            <span>Months</span>
+            <input
+              type="number"
+              min={1}
+              max={60}
+              value={form.months ?? 1}
+              onChange={(e) => set('months', Number(e.target.value) as never)}
+            />
+          </label>
+        )}
         <label className="cmdparam">
           <span>Display name</span>
           <input value={form.displayName ?? ''} onChange={(e) => set('displayName', e.target.value)} />
