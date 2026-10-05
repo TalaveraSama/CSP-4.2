@@ -5,3 +5,4 @@ dist/
 .env.local
 build/
 .buildhome/
+*.tsbuildinfo
