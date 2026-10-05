@@ -112,7 +112,20 @@ test('an empty user-manager still accepts the first account', () => {
     listAccounts(xml).map((a) => a.name),
     ['primero'],
   );
-  assert.ok(/<user name="primero"[^>]*\/>\n\s*<\/user-manager>/.test(xml));
+  assert.ok(/<user name="primero"[^>]*\/>\n\s*<\/auth-config>/.test(xml), 'inside auth-config');
+});
+
+test('the first account goes inside <auth-config>, where CSP reads it', () => {
+  const empty = `<cardserv-proxy ver="1.0">
+  <user-manager class="com.bowman.cardserv.SimpleUserManager">
+    <auth-config>
+    </auth-config>
+  </user-manager>
+</cardserv-proxy>
+`;
+  const xml = upsertAccount(empty, { name: 'primero', password: 'pw' }, { create: true });
+  const authConfig = /<auth-config>[\s\S]*?<\/auth-config>/.exec(xml)![0];
+  assert.ok(authConfig.includes('name="primero"'), 'SimpleUserManager only looks in auth-config');
 });
 
 test('refuses nonsense instead of writing a broken proxy.xml', () => {

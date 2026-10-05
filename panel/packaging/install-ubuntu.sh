@@ -106,6 +106,10 @@ Usage: sudo bash install-ubuntu.sh [options]
                              'skip' trusts the Node.js already on the box
   -y, --yes                  non-interactive, accept the defaults
   --force                    run on a distribution that is not Ubuntu 20/22/24
+  --credentials              show which accounts exist and where they live
+  --reset-password [PASS]    give the panel admin account a new password
+                             (random when PASS is omitted)
+  --add-user NAME [PASS]     add a client account (CSP proxy.xml or ncam.user)
   --uninstall                stop and remove the package (keeps the config)
   --purge                    remove everything, including /etc/csp-panel
   -h, --help                 this text
@@ -147,6 +151,9 @@ while [ $# -gt 0 ]; do
     --cache-port)  CACHE_NODE_PORT="${2:?}"; shift 2 ;;
     -y|--yes)      ASSUME_YES=1; shift ;;
     --force)       FORCE=1; shift ;;
+    --credentials) ACTION=credentials; shift ;;
+    --reset-password) ACTION=reset; NEW_PASSWORD="${2:-}"; [ -n "${2:-}" ] && shift; shift ;;
+    --add-user)    ACTION=adduser; NEW_USER="${2:?--add-user needs a name}"; NEW_PASSWORD="${3:-}"; shift 2; [ -n "${NEW_PASSWORD:-}" ] && shift || true ;;
     --uninstall)   ACTION=uninstall; shift ;;
     --purge)       ACTION=purge; shift ;;
     -h|--help)     usage; exit 0 ;;
@@ -218,11 +225,13 @@ if [ "$(id -u)" -ne 0 ]; then
   exec sudo -E bash "$0" "$@"
 fi
 
+# Asking about accounts or removing the package works on any distribution;
+# only an actual install cares which one this is.
 . /etc/os-release 2>/dev/null || die "cannot read /etc/os-release"
 DISTRO="${ID:-unknown}"; RELEASE="${VERSION_ID:-unknown}"
-case "$DISTRO:$RELEASE" in
+case "$([ "$ACTION" = install ] && echo "$DISTRO:$RELEASE" || echo ubuntu:22.04)" in
   ubuntu:20.04|ubuntu:22.04|ubuntu:24.04)
-    ok "$PRETTY_NAME" ;;
+    [ "$ACTION" = install ] && ok "$PRETTY_NAME" ;;
   *)
     if [ "$FORCE" = 1 ]; then
       warn "$PRETTY_NAME is not a supported target, continuing because of --force"
@@ -235,6 +244,138 @@ esac
 export DEBIAN_FRONTEND=noninteractive
 
 # -------------------------------------------------------- uninstall / purge --
+
+# ------------------------------------------------------------- credentials ---
+# Nothing in this stack has a password database of its own: the panel forwards
+# the login to whatever it manages. So "what is my password" always means one
+# of two files.
+NCAM_CONF=/etc/ncam/ncam.conf
+CSP_CONF=/etc/cardservproxy/proxy.xml
+
+random_password() { head -c 12 /dev/urandom | base64 | tr -d '/+=' | head -c 14; }
+
+panel_backend() { [ -f "$CONF" ] && sed -n 's/^[[:space:]]*BACKEND[[:space:]]*=[[:space:]]*//p' "$CONF" | tail -1; }
+
+ini_get() { sed -n "s/^[[:space:]]*$2[[:space:]]*=[[:space:]]*//p" "$1" 2>/dev/null | tail -1 | tr -d '\r'; }
+
+show_credentials() {
+  local backend; backend="$(panel_backend)"
+  echo
+  echo "${BOLD}Where the passwords live${OFF}"
+  echo
+
+  if [ -f "$CSP_CONF" ]; then
+    echo "  ${BOLD}CardServProxy${OFF}  $CSP_CONF"
+    sed -n 's/.*<user \(.*\)\/>.*/\1/p' "$CSP_CONF" | while read -r line; do
+      local name pass admin
+      name=$(echo "$line" | sed -n 's/.*name="\([^"]*\)".*/\1/p')
+      pass=$(echo "$line" | sed -n 's/.*password="\([^"]*\)".*/\1/p')
+      admin=$(echo "$line" | grep -q 'admin="true"' && echo ' (admin)' || echo '')
+      printf '    %-18s %s%s\n' "$name" "$pass" "$admin"
+    done
+    [ "$backend" = csp ] && echo "    ${DIM}the panel logs in here${OFF}"
+    echo
+  fi
+
+  if [ -f "$NCAM_CONF" ]; then
+    echo "  ${BOLD}NCam web interface${OFF}  $NCAM_CONF  [webif]"
+    printf '    %-18s %s\n' "$(ini_get "$NCAM_CONF" httpuser)" "$(ini_get "$NCAM_CONF" httppwd)"
+    { [ "$backend" = ncam ] || [ "$backend" = oscam ]; } && echo "    ${DIM}the panel logs in here${OFF}"
+    echo
+    if [ -f /etc/ncam/ncam.user ]; then
+      local users; users="$(grep -c '^\[account\]' /etc/ncam/ncam.user 2>/dev/null || echo 0)"
+      echo "  ${BOLD}NCam client accounts${OFF}  /etc/ncam/ncam.user  ($users)"
+      awk '/^\[account\]/{u="";p=""} /^user/{sub(/^user[ \t]*=[ \t]*/,"");u=$0} /^pwd/{sub(/^pwd[ \t]*=[ \t]*/,"");p=$0; if(u!="") printf "    %-18s %s\n", u, p}' /etc/ncam/ncam.user
+      echo
+    fi
+  fi
+
+  if [ ! -f "$CSP_CONF" ] && [ ! -f "$NCAM_CONF" ]; then
+    if [ "$(ini_get "$CONF" MOCK)" = 1 ]; then
+      echo "  The panel is in demo mode: ${BOLD}any user and password works${OFF} (\"admin\" is an admin)."
+    else
+      echo "  No softcam configuration found here. The panel forwards the login to"
+      echo "  $(ini_get "$CONF" OSCAM_URL)$(ini_get "$CONF" NCAM_URL)$(ini_get "$CONF" CSP_URL),"
+      echo "  so the credentials are the ones configured on that machine."
+    fi
+    echo
+  fi
+
+  echo "  ${DIM}new password: sudo bash $SELF --reset-password${OFF}"
+  echo "  ${DIM}new client:   sudo bash $SELF --add-user NAME [PASSWORD]${OFF}"
+  echo
+}
+
+reset_password() {
+  local pass="${NEW_PASSWORD:-$(random_password)}" backend; backend="$(panel_backend)"
+  if [ "$backend" = csp ] && [ -f "$CSP_CONF" ]; then
+    local user
+    user=$(grep -o '<user [^>]*admin="true"[^>]*/>' "$CSP_CONF" | head -1 | sed -n 's/.*name="\([^"]*\)".*/\1/p')
+    [ -n "$user" ] || die "no admin account in $CSP_CONF"
+    python3 - "$CSP_CONF" "$user" "$pass" <<'PY'
+import re, sys
+path, user, pw = sys.argv[1:4]
+text = open(path).read()
+pattern = re.compile(r'(<user\b[^>]*name="%s"[^>]*?password=")[^"]*(")' % re.escape(user))
+new, n = pattern.subn(lambda m: m.group(1) + pw.replace('&', '&amp;').replace('"', '&quot;') + m.group(2), text)
+if not n:
+    sys.exit(f"could not find the password of {user}")
+open(path, 'w').write(new)
+PY
+    systemd_running && systemctl restart cardservproxy.service 2>/dev/null || true
+    ok "CardServProxy admin: ${BOLD}$user / $pass${OFF}"
+  elif [ -f "$NCAM_CONF" ]; then
+    local user; user="$(ini_get "$NCAM_CONF" httpuser)"
+    sed -i "s|^httppwd .*|httppwd                       = $pass|" "$NCAM_CONF"
+    systemd_running && systemctl restart ncam.service 2>/dev/null || true
+    ok "NCam web interface: ${BOLD}${user:-admin} / $pass${OFF}"
+  else
+    die "no $CSP_CONF and no $NCAM_CONF: nothing to reset on this machine"
+  fi
+  systemd_running && systemctl restart "$SERVICE" 2>/dev/null || true
+}
+
+add_user() {
+  local pass="${NEW_PASSWORD:-$(random_password)}" backend; backend="$(panel_backend)"
+  if [ "$backend" = csp ] && [ -f "$CSP_CONF" ]; then
+    grep -q "name=\"$NEW_USER\"" "$CSP_CONF" && die "the account \"$NEW_USER\" already exists"
+    python3 - "$CSP_CONF" "$NEW_USER" "$pass" <<'PY'
+import re, sys
+path, user, pw = sys.argv[1:4]
+text = open(path).read()
+entry = '<user name="%s" password="%s"/>' % (user, pw.replace('&', '&amp;').replace('"', '&quot;'))
+# SimpleUserManager reads user-manager/auth-config/user, so the account has to
+# go inside <auth-config> whenever the file has one.
+m = re.search(r'([ \t]*)<\/auth-config\s*>', text) or re.search(r'([ \t]*)<\/user-manager\s*>', text)
+if not m:
+    sys.exit('proxy.xml has no <user-manager> section')
+text = text[:m.start()] + m.group(1) + '  ' + entry + '\n' + text[m.start():]
+open(path, 'w').write(text)
+PY
+    systemd_running && systemctl restart cardservproxy.service 2>/dev/null || true
+    ok "CardServProxy client: ${BOLD}$NEW_USER / $pass${OFF}  (newcamd port, profile from proxy.xml)"
+  elif [ -f /etc/ncam/ncam.user ]; then
+    grep -qE "^user[[:space:]]*=[[:space:]]*$NEW_USER$" /etc/ncam/ncam.user && die "the account \"$NEW_USER\" already exists"
+    cat >> /etc/ncam/ncam.user <<EOF
+
+[account]
+user                          = $NEW_USER
+pwd                           = $pass
+group                         = 1
+EOF
+    systemd_running && systemctl restart ncam.service 2>/dev/null || true
+    ok "NCam client: ${BOLD}$NEW_USER / $pass${OFF}"
+  else
+    die "neither $CSP_CONF nor /etc/ncam/ncam.user exists here"
+  fi
+}
+
+case "$ACTION" in
+  credentials) show_credentials; exit 0 ;;
+  reset)       reset_password;  exit 0 ;;
+  adduser)     add_user;        exit 0 ;;
+esac
+
 if [ "$ACTION" != install ]; then
   say "removing $PKG"
   if [ "$ACTION" = purge ]; then

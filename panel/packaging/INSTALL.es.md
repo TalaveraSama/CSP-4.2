@@ -153,6 +153,50 @@ Para unirse a un cluster que ya tengas, sin instalar CSP:
 sudo bash panel/packaging/install-ubuntu.sh --cache-peers 10.8.0.2:54278,127.0.0.1:54279 --yes
 ```
 
+## ¿Y las contraseñas?
+
+Ninguna pieza tiene usuarios propios: **el panel reenvía el login a lo que
+gestiona**, así que la contraseña está siempre en uno de estos dos ficheros.
+
+```bash
+sudo bash panel/packaging/install-ubuntu.sh --credentials
+```
+
+```
+Where the passwords live
+
+  CardServProxy  /etc/cardservproxy/proxy.xml
+    admin              MiClave2026 (admin)
+    the panel logs in here
+
+  NCam web interface  /etc/ncam/ncam.conf  [webif]
+    admin              RLedh7bEEFM
+
+  NCam client accounts  /etc/ncam/ncam.user  (2)
+    csp                proxy1pass
+    cliente1           abc123
+```
+
+Cambiar la contraseña con la que entras al panel (aleatoria si no pones una):
+
+```bash
+sudo bash panel/packaging/install-ubuntu.sh --reset-password
+sudo bash panel/packaging/install-ubuntu.sh --reset-password MiClaveNueva
+```
+
+Dar de alta un cliente (va a `proxy.xml` si tienes CSP, y si no a `ncam.user`):
+
+```bash
+sudo bash panel/packaging/install-ubuntu.sh --add-user cliente1
+sudo bash panel/packaging/install-ubuntu.sh --add-user cliente1 suclave
+```
+
+Con CSP delante, lo normal es crear los clientes desde la pestaña **Accounts**
+del panel; estos comandos son para cuando no puedes entrar.
+
+En modo demo (`MOCK=1`) vale cualquier usuario y contraseña, y `admin` entra
+como administrador.
+
 ## Qué hace, paso a paso
 
 1. Comprueba que es Ubuntu 20.04, 22.04 o 24.04 (`--force` para Debian 11/12).
@@ -191,6 +235,9 @@ sudo bash panel/packaging/install-ubuntu.sh --cache-peers 10.8.0.2:54278,127.0.0
 | `--csp-port/-user/-pass` | status-web del proxy y su cuenta admin |
 | `--csp-client-port`, `--csp-caid` | puerto newcamd para tus clientes y CAID del perfil |
 | `--cache-peers`, `--cache-port` | se une al cluster de cache y activa la pestaña *Cache* |
+| `--credentials` | enseña qué cuentas hay y en qué fichero |
+| `--reset-password [CLAVE]` | nueva contraseña para la cuenta con la que entras al panel |
+| `--add-user NOMBRE [CLAVE]` | alta de un cliente |
 | `--ncam-port/-user/-pass` | ajustes del webif de NCam que se crea |
 | `--url URL` | interfaz web del softcam, local o remota (OSCam/NCam `httpport`, CSP status-web) |
 | `--port N` / `--listen ADDR` | dónde escucha el panel (por defecto `127.0.0.1:8090`) |

@@ -196,9 +196,10 @@ export function upsertAccount(xml: string, account: Account, { create }: { creat
     return `${xml.slice(0, end)}\n${indent}${toElement(account)}${xml.slice(end)}`;
   }
 
-  // First account: right before </user-manager>, which is where CSP's
-  // SimpleUserManager/XmlUserManager look for them.
-  const anchor = /([ \t]*)<\/user-manager\s*>/.exec(region.text)!;
+  // First account: inside <auth-config> when the file has one, because that
+  // is the path SimpleUserManager reads (user-manager/auth-config/user).
+  const anchor = (/([ \t]*)<\/auth-config\s*>/.exec(region.text) ??
+    /([ \t]*)<\/user-manager\s*>/.exec(region.text))!;
   const at = region.start + anchor.index;
   const indent = `${anchor[1] ?? ''}  `;
   return `${xml.slice(0, at)}${indent}${toElement(account)}\n${xml.slice(at)}`;
