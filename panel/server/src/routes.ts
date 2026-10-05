@@ -1,5 +1,6 @@
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { ResellerError, ResellerStore, addMonths, isoDate } from './resellers.js';
+import { expiringSoon } from './notify.js';
 import { AccountError, type Account } from './accounts.js';
 import {
   findOne,
@@ -188,7 +189,7 @@ export function createApiRouter(
   // A reseller only has the Accounts and Sessions tabs; everything else is
   // the operator's business. Blocking it here too means a crafted request
   // cannot read what the interface does not show him.
-  const resellerAllowed = /^\/(accounts|sessions|auth|meta)(\/|$)/;
+  const resellerAllowed = /^\/(accounts|sessions|expiring|auth|meta)(\/|$)/;
   api.use((req, res, next) => {
     if (req.session?.role !== 'reseller' || resellerAllowed.test(req.path)) return next();
     res.status(403).json({ error: 'not available to resellers' });
@@ -539,6 +540,22 @@ export function createApiRouter(
     }),
   );
 
+  /* ------------------------------------------------------------- expiring */
+
+  // What is about to die. The administrator sees everything, a reseller only
+  // his own, and both see it in the panel without waiting for the digest.
+  api.get(
+    '/expiring',
+    requireAccountAccess,
+    wrap(async (req, res) => {
+      const store = requireResellers();
+      const days = Math.min(Math.max(Number(qs(req, 'days') ?? 3), 0), 90);
+      let lines = expiringSoon(store, days);
+      if (isReseller(req)) lines = lines.filter((l) => l.ownerId === req.session!.resellerId);
+      res.json({ days, lines });
+    }),
+  );
+
   /* ------------------------------------------------------------ resellers */
 
   api.get(
@@ -569,14 +586,15 @@ export function createApiRouter(
     '/resellers/:id',
     requireAdmin,
     wrap(async (req, res) => {
-      const { password, enabled, note, credits } = req.body as {
+      const { password, enabled, note, credits, telegramChatId } = req.body as {
         password?: string;
         enabled?: boolean;
         note?: string;
         credits?: number;
+        telegramChatId?: string;
       };
       const store = requireResellers();
-      const updated = store.update(req.params.id!, { password, enabled, note });
+      const updated = store.update(req.params.id!, { password, enabled, note, telegramChatId });
       if (credits !== undefined && Number(credits) !== 0) {
         store.addCredits(req.params.id!, Number(credits), Number(credits) > 0 ? 'top up' : 'adjustment');
       }

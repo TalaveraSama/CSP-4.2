@@ -11,6 +11,7 @@ import { HttpOscamTransport } from './oscam/http.js';
 import { MockOscamTransport } from './oscam/mock.js';
 import { createApiRouter, serviceCredentials } from './routes.js';
 import { startExpirySweeper } from './expiry.js';
+import { startNotifier } from './notify.js';
 import { SessionStore } from './sessions.js';
 import { ResellerStore } from './resellers.js';
 
@@ -69,6 +70,18 @@ if (resellers) {
     auth: () => serviceCredentials.current,
     intervalMs: Number(process.env.EXPIRY_SWEEP_MS) || 10 * 60_000,
     log: (message) => console.log(`[csp-panel] expiry: ${message}`),
+  });
+
+  // Daily heads-up about what is about to expire. Without a telegram token
+  // it only feeds the panel, which is already useful.
+  startNotifier({
+    resellers,
+    telegram: process.env.TELEGRAM_TOKEN
+      ? { token: process.env.TELEGRAM_TOKEN, chatId: process.env.TELEGRAM_CHAT_ID }
+      : undefined,
+    days: Number(process.env.EXPIRY_WARN_DAYS) || 3,
+    hour: Number(process.env.EXPIRY_WARN_HOUR ?? 9),
+    log: (message) => console.log(`[csp-panel] notify: ${message}`),
   });
 }
 

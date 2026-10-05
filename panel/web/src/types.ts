@@ -296,6 +296,15 @@ export interface Reseller {
   note?: string;
   createdAt: string;
   clients: number;
+  telegramChatId?: string;
+}
+
+export interface ExpiringLine {
+  name: string;
+  expiresAt: string;
+  daysLeft: number;
+  owner: string;
+  ownerId: string;
 }
 
 export interface LedgerEntry {

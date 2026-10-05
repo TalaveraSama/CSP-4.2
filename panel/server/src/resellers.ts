@@ -27,6 +27,8 @@ export interface Reseller {
   credits: number;
   enabled: boolean;
   note?: string;
+  /** Optional: where to send him his own expiry digest. */
+  telegramChatId?: string;
   createdAt: string;
 }
 
@@ -125,6 +127,7 @@ export class ResellerStore {
       credits: r.credits,
       enabled: r.enabled,
       note: r.note,
+      telegramChatId: r.telegramChatId,
       createdAt: r.createdAt,
       clients: Object.values(this.db.clients).filter((c) => c.owner === r.id).length,
     }));
@@ -161,7 +164,7 @@ export class ResellerStore {
     return reseller;
   }
 
-  update(id: string, patch: { password?: string; enabled?: boolean; note?: string }): Reseller {
+  update(id: string, patch: { password?: string; enabled?: boolean; note?: string; telegramChatId?: string }): Reseller {
     const reseller = this.byId(id);
     if (!reseller) throw new ResellerError('no such reseller', 404);
     if (patch.password) {
@@ -170,6 +173,9 @@ export class ResellerStore {
     }
     if (patch.enabled !== undefined) reseller.enabled = patch.enabled;
     if (patch.note !== undefined) reseller.note = patch.note;
+    if (patch.telegramChatId !== undefined) {
+      reseller.telegramChatId = patch.telegramChatId || undefined;
+    }
     this.save();
     return reseller;
   }

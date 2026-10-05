@@ -1,4 +1,4 @@
-import type { Account, CacheReport, CspIdentity, LedgerEntry, Reseller, StatusSnapshot } from './types';
+import type { Account, CacheReport, CspIdentity, ExpiringLine, LedgerEntry, Reseller, StatusSnapshot } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -98,6 +98,8 @@ export const api = {
 
   cache: () => request<CacheReport>('/cache'),
 
+  expiring: (days = 3) => request<{ days: number; lines: ExpiringLine[] }>(`/expiring?days=${days}`),
+
   resellers: () => request<{ resellers: Reseller[]; ledger: LedgerEntry[] }>('/resellers'),
   createReseller: (body: { user: string; password: string; credits?: number; note?: string }) =>
     request<CommandResult>('/resellers', {
@@ -105,7 +107,10 @@ export const api = {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     }),
-  updateReseller: (id: string, body: { password?: string; enabled?: boolean; note?: string; credits?: number }) =>
+  updateReseller: (
+    id: string,
+    body: { password?: string; enabled?: boolean; note?: string; credits?: number; telegramChatId?: string },
+  ) =>
     request<CommandResult>(`/resellers/${encodeURIComponent(id)}`, {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },

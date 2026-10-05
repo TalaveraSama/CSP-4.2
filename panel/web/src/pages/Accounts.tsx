@@ -3,7 +3,7 @@ import { api } from '../api';
 import { useApp } from '../app-context';
 import { usePolling } from '../hooks';
 import { Badge, Card, Empty, ErrorBox, Stat } from '../components/ui';
-import type { Account } from '../types';
+import type { Account, ExpiringLine } from '../types';
 
 const BLANK: Account = { name: '', password: '', profiles: '', ipMask: '', enabled: true };
 
@@ -18,6 +18,11 @@ export function Accounts() {
   const { interval, onUnauthorized, meta } = useApp();
   const load = useCallback(() => api.accounts(), []);
   const { data, error, refresh } = usePolling(load, interval, [], onUnauthorized);
+
+  // What is about to die, from the panel's own records: it works even on a
+  // backend with no expiry field of its own.
+  const loadExpiring = useCallback(() => api.expiring(3).catch(() => ({ days: 3, lines: [] as ExpiringLine[] })), []);
+  const { data: soon } = usePolling(loadExpiring, interval, [], onUnauthorized);
 
   const [editing, setEditing] = useState<Account | null>(null);
   const [creating, setCreating] = useState(false);
@@ -107,6 +112,33 @@ export function Accounts() {
             }).length}
           />
         </div>
+      )}
+
+      {soon && soon.lines.length > 0 && (
+        <Card
+          title={`Expiring soon (${soon.lines.length})`}
+          actions={<span className="muted small">next {soon.days} day(s)</span>}
+        >
+          <div className="chiplist">
+            {soon.lines.map((l) => (
+              <button
+                key={l.name}
+                className="mini"
+                title={`${l.expiresAt} — click to renew`}
+                disabled={busy}
+                onClick={() => renew(l.name)}
+              >
+                {l.name}{' '}
+                <Badge tone={l.daysLeft < 0 ? 'bad' : l.daysLeft === 0 ? 'warn' : 'neutral'}>
+                  {l.daysLeft < 0 ? `-${-l.daysLeft}d` : l.daysLeft === 0 ? 'hoy' : `${l.daysLeft}d`}
+                </Badge>
+              </button>
+            ))}
+          </div>
+          <p className="muted small">
+            Click a line to renew it. Expired lines are disabled automatically and come back when renewed.
+          </p>
+        </Card>
       )}
 
       <Card

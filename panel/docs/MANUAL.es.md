@@ -222,6 +222,28 @@ La caducidad la lleva el panel en `/var/lib/csp-panel/resellers.json`, así que
 funciona igual aunque el backend no tenga campo de expiración; en NCam además
 se escribe `expdate` en la cuenta.
 
+### Avisos antes de que venzan
+
+El panel marca lo que está a punto de morir: en **Accounts** aparece una
+tarjeta *Expiring soon* con las líneas que vencen en los próximos días (y las
+ya vencidas), y **pulsando cada una se renueva**. El reseller solo ve las
+suyas.
+
+Además puede mandar un resumen diario por **Telegram**: uno a ti con todo, y
+uno a cada reseller que tenga su chat configurado, solo con lo suyo. En
+`/etc/csp-panel/panel.env`:
+
+```ini
+TELEGRAM_TOKEN=123456:AA...        # el bot que te da @BotFather
+TELEGRAM_CHAT_ID=987654321         # tu chat (escríbele al bot y míralo en /getUpdates)
+EXPIRY_WARN_DAYS=3                 # cuántos días de antelación
+EXPIRY_WARN_HOUR=9                 # hora a la que se manda
+```
+
+El chat de cada reseller se pone desde la pestaña **Resellers** → botón
+*Telegram*. Sin token no se manda nada: la tarjeta del panel sigue
+funcionando igual.
+
 ## 6. Lectores (las tarjetas y las líneas)
 
 Siempre en NCam: el proxy no habla con tarjetas ni con servidores remotos.
@@ -376,6 +398,8 @@ sudo tail -f /opt/cardservproxy/log/cardservproxy.log
 | `SESSION_TTL_MS` | duración de la sesión (8 h) |
 | `BACKEND_USER` / `BACKEND_PASS` | credenciales del softcam que el panel usa en nombre de los resellers |
 | `EXPIRY_SWEEP_MS` | cada cuánto se cortan las líneas vencidas (10 min) |
+| `TELEGRAM_TOKEN` / `TELEGRAM_CHAT_ID` | avisos diarios por Telegram |
+| `EXPIRY_WARN_DAYS` / `EXPIRY_WARN_HOUR` | antelación y hora del aviso |
 | `RESELLERS_FILE` | ruta del almacén de resellers |
 | `NODE_BIN` | forzar un intérprete de Node concreto |
 
@@ -415,6 +439,7 @@ curl -s -b /tmp/cs -X POST -H 'content-type: application/json' \
 | GET/PUT | `/api/config?file=…` | leer y guardar ficheros de configuración (admin) |
 | GET/POST | `/api/accounts` | listar y crear cuentas (admin) |
 | PUT/DELETE | `/api/accounts/:name` | editar y borrar (admin) |
+| GET | `/api/expiring?days=3` | líneas a punto de vencer (el reseller, solo las suyas) |
 | GET/POST | `/api/resellers` | listar y crear resellers (admin) |
 | PUT/DELETE | `/api/resellers/:id` | recargar créditos, cambiar clave, habilitar, borrar |
 | GET | `/api/cache` | estado del cluster de cache |

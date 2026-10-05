@@ -39,6 +39,15 @@ export function Resellers() {
     void run(() => api.updateReseller(r.id, { credits: n }));
   };
 
+  const setTelegram = (r: Reseller) => {
+    const chat = prompt(
+      `Telegram chat id for "${r.user}" (empty to remove).\nHe will get a daily list of his lines about to expire.`,
+      r.telegramChatId ?? '',
+    );
+    if (chat === null) return;
+    void run(() => api.updateReseller(r.id, { telegramChatId: chat.trim() }));
+  };
+
   const setPassword = (r: Reseller) => {
     const password = prompt(`New password for "${r.user}":`);
     if (!password) return;
@@ -94,6 +103,7 @@ export function Resellers() {
                 <th className="r">Credits</th>
                 <th className="r">Clients</th>
                 <th>Since</th>
+                <th>Telegram</th>
                 <th>Note</th>
                 <th />
               </tr>
@@ -109,6 +119,7 @@ export function Resellers() {
                   </td>
                   <td className="r">{num(r.clients)}</td>
                   <td className="muted small">{r.createdAt.slice(0, 10)}</td>
+                  <td className="muted small">{r.telegramChatId ?? '—'}</td>
                   <td className="muted small">{r.note}</td>
                   <td className="r nowrap">
                     <button className="mini" disabled={busy} onClick={() => topUp(r)}>
@@ -116,6 +127,9 @@ export function Resellers() {
                     </button>
                     <button className="mini" disabled={busy} onClick={() => setPassword(r)}>
                       Password
+                    </button>
+                    <button className="mini" disabled={busy} onClick={() => setTelegram(r)}>
+                      Telegram
                     </button>
                     <button
                       className="mini"
