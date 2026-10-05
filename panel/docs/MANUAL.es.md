@@ -153,6 +153,36 @@ que mantener y, si el 10000 es accesible desde fuera, permite saltarse el proxy.
 
 ---
 
+## 5b. NCam sirviendo a los clientes (sin proxy)
+
+CSP es opcional. NCam ya es un cardserver completo: atiende clientes por
+newcamd y CCcam, tiene las cuentas, los lectores y la cache. Para miles de
+usuarios es lo que usa todo el mundo, y son menos piezas que mantener.
+
+```bash
+sudo bash panel/packaging/install-ubuntu.sh --serve-clients --caid 1802
+sudo bash panel/packaging/install-ubuntu.sh --remove-csp      # si tenías el proxy
+```
+
+`--serve-clients` escribe en `ncam.conf`:
+
+- `[newcamd] port = 10000@CAID:000000` con su `key`,
+- `[cccam] port = 12000` con `reshare` y `version`,
+
+y reinicia NCam. Opciones: `--newcamd-port`, `--cccam-port`, `--deskey`,
+`--caid`. Las líneas que das a tus clientes quedan:
+
+```
+N: TU-IP 10000 usuario clave 01 02 03 04 05 06 07 08 09 10 11 12 13 14
+C: TU-IP 12000 usuario clave
+```
+
+Las cuentas se crean en la pestaña **Accounts** del panel (o con
+`--add-user`), y el `group` de cada cuenta debe coincidir con el de los
+lectores. `--remove-csp` para el proxy, lo deshabilita y **devuelve el panel a
+NCam** para que no te quedes sin acceso; su configuración se conserva por si
+lo quieres de vuelta.
+
 ## 6. Lectores (las tarjetas y las líneas)
 
 Siempre en NCam: el proxy no habla con tarjetas ni con servidores remotos.
@@ -232,6 +262,8 @@ sudo bash panel/packaging/install-ubuntu.sh --cache-peers 10.8.0.2:54278,127.0.0
 
 | Comando | Qué hace |
 | --- | --- |
+| `--serve-clients` | abre los puertos newcamd/cccam de NCam para tus clientes |
+| `--remove-csp` | para y deshabilita el proxy java, y devuelve el panel a NCam |
 | `--status` | revisa toda la pila y dice qué está roto, con las últimas líneas de su log |
 | `--credentials` | enseña qué cuentas existen y en qué fichero |
 | `--reset-password [CLAVE]` | nueva contraseña para entrar al panel |

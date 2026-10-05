@@ -303,6 +303,8 @@ como administrador.
 | `--credentials` | enseña qué cuentas hay y en qué fichero |
 | `--migrate-users` | saca las cuentas de `proxy.xml` a `users.xml` (para miles de clientes) |
 | `--only-ncam` | panel + NCam, sin proxy |
+| `--serve-clients` | NCam atiende a tus clientes: puertos newcamd y cccam |
+| `--remove-csp` | para el proxy java y devuelve el panel a NCam |
 | `--add-reader URL` | añade una línea cccam/newcamd a `ncam.server` |
 | `--reset-password [CLAVE]` | nueva contraseña para la cuenta con la que entras al panel |
 | `--add-user NOMBRE [CLAVE]` | alta de un cliente |

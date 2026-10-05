@@ -40,6 +40,9 @@ CSP_PREFIX=/opt/cardservproxy
 CSP_CACHE_PORT=""
 NCAM_CACHE_PORT=""
 NCAM_NEWCAMD_PORT=""
+NCAM_CCCAM_PORT=""
+NCAM_DESKEY=""
+
 
 NCAM_PORT=""
 NCAM_USER=""
@@ -116,6 +119,13 @@ Usage: sudo bash install-ubuntu.sh [options]
                              into users.xml (XmlUserManager), so adding an
                              account no longer reloads the proxy — do this
                              before you get to hundreds of accounts
+  --serve-clients            let NCam serve your clients directly (no proxy):
+                             opens a newcamd and a cccam port and points the
+                             panel at NCam
+                             (--caid 1802, --newcamd-port 10000,
+                              --cccam-port 12000, --deskey HEX)
+  --remove-csp               stop and disable the java proxy (its config in
+                             /etc/cardservproxy is kept)
   --status                   check every piece of the stack and show what is
                              broken, with the last lines of its log
   --credentials              show which accounts exist and where they live
@@ -172,6 +182,12 @@ while [ $# -gt 0 ]; do
     -y|--yes)      ASSUME_YES=1; shift ;;
     --force)       FORCE=1; shift ;;
     --status)      ACTION=status; shift ;;
+    --serve-clients) ACTION=clients; shift ;;
+    --remove-csp)  ACTION=removecsp; shift ;;
+    --caid)        CSP_CAID="${2:?}"; shift 2 ;;
+    --newcamd-port) NCAM_NEWCAMD_PORT="${2:?}"; shift 2 ;;
+    --cccam-port)  NCAM_CCCAM_PORT="${2:?}"; shift 2 ;;
+    --deskey)      NCAM_DESKEY="${2:?}"; shift 2 ;;
     --credentials) ACTION=credentials; shift ;;
     --migrate-users) ACTION=migrate; shift ;;
     --reset-password) ACTION=reset; NEW_PASSWORD="${2:-}"; [ -n "${2:-}" ] && shift; shift ;;
@@ -647,8 +663,98 @@ show_status() {
   echo
 }
 
+# --------------------------------------------------- ncam serving clients ---
+# Without a proxy in front, NCam is the server your clients talk to. It needs
+# a newcamd port (which carries the caid) and/or a cccam port, and accounts
+# whose group matches the readers'.
+serve_clients() {
+  local conf=/etc/ncam/ncam.conf
+  local caid="${CSP_CAID:-0x1802}" newcamd="${NCAM_NEWCAMD_PORT:-10000}" cccam="${NCAM_CCCAM_PORT:-12000}"
+  local deskey="${NCAM_DESKEY:-0102030405060708091011121314}"
+  local caid_hex="${caid#0x}"; caid_hex="${caid_hex#0X}"
+
+  [ -f "$conf" ] || die "no $conf: install NCam first (--install-ncam)"
+
+  python3 - "$conf" "$newcamd" "$cccam" "$deskey" "$caid_hex" <<'PY'
+import re, sys
+
+path, newcamd, cccam, deskey, caid = sys.argv[1:6]
+text = open(path).read()
+
+def section(name, body):
+    """Replace a whole [section] with body, or append it."""
+    global text
+    pattern = re.compile(rf'^\[{name}\]\n(?:[^\[]*\n)*?(?=\[|\Z)', re.M)
+    block = f'[{name}]\n{body}\n\n'
+    if pattern.search(text):
+        text = pattern.sub(block, text, count=1)
+    else:
+        text = text.rstrip('\n') + '\n\n' + block
+
+def pad(key, value):
+    return f'{key:<30}= {value}'
+
+if newcamd != '0':
+    section('newcamd', '\n'.join([
+        pad('port', f'{newcamd}@{caid}:000000'),
+        pad('key', deskey),
+        pad('allowed', '0.0.0.0-255.255.255.255'),
+        pad('keepalive', '1'),
+        pad('mgclient', '1'),
+    ]))
+
+if cccam != '0':
+    section('cccam', '\n'.join([
+        pad('port', cccam),
+        pad('reshare', '2'),
+        pad('version', '2.3.0'),
+        pad('keepconnected', '1'),
+        pad('stealth', '0'),
+    ]))
+
+text = re.sub(r'\n{3,}', '\n\n', text).rstrip('\n') + '\n'
+open(path, 'w').write(text)
+print(f'newcamd {newcamd}@{caid}, cccam {cccam}')
+PY
+  local rc=$?
+  [ $rc -eq 0 ] || exit $rc
+
+  if systemd_running; then
+    systemctl restart ncam.service 2>/dev/null || warn "could not restart ncam"
+    sleep 2
+  fi
+  ok "NCam serves clients on newcamd ${newcamd} (caid ${caid_hex}) and cccam ${cccam}"
+  echo "    N: line   N: <tu-ip> ${newcamd} USUARIO CLAVE ${deskey}"
+  echo "    C: line   C: <tu-ip> ${cccam} USUARIO CLAVE"
+  echo "    ${DIM}accounts: panel (Accounts tab) or --add-user NOMBRE [CLAVE]${OFF}"
+}
+
+# The java proxy is optional; this takes it out of the way without deleting
+# its configuration, in case you want it back.
+remove_csp() {
+  if systemd_running; then
+    systemctl disable --now cardservproxy.service 2>/dev/null || true
+  fi
+  rm -f /lib/systemd/system/cardservproxy.service
+  systemd_running && sctl daemon-reload
+  ok "cardservproxy stopped and disabled (/etc/cardservproxy and /opt/cardservproxy kept)"
+
+  # Leaving the panel pointed at a proxy that no longer exists is how you lock
+  # yourself out of your own panel.
+  if [ "$(panel_backend)" = csp ]; then
+    set_kv "$CONF" BACKEND ncam
+    set_kv "$CONF" NCAM_URL "http://127.0.0.1:${NCAM_PORT:-8888}"
+    set_kv "$CONF" MOCK 0
+    systemd_running && systemctl restart "$SERVICE" 2>/dev/null || true
+    ok "the panel now manages NCam; log in with its web interface credentials"
+    echo "    sudo bash $SELF --credentials"
+  fi
+}
+
 case "$ACTION" in
   status)      show_status;      exit 0 ;;
+  clients)     serve_clients;    exit 0 ;;
+  removecsp)   remove_csp;       exit 0 ;;
   credentials) show_credentials; exit 0 ;;
   migrate)     migrate_users;   exit 0 ;;
   addreader)   add_reader;      exit 0 ;;
