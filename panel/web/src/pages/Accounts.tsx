@@ -64,6 +64,8 @@ export function Accounts() {
   if (!data) return <Empty>Loading accounts…</Empty>;
 
   const accounts = data.accounts;
+  // proxy.xml speaks of profiles and admins, ncam.user of groups and expiry.
+  const ini = data.kind === 'ini';
 
   return (
     <>
@@ -97,8 +99,8 @@ export function Accounts() {
             <thead>
               <tr>
                 <th>User</th>
-                <th>Profiles</th>
-                <th>IP mask</th>
+                <th>{ini ? 'Groups' : 'Profiles'}</th>
+                <th>{ini ? 'Host' : 'IP mask'}</th>
                 <th className="r">Max conn.</th>
                 <th>Flags</th>
                 <th />
@@ -111,11 +113,12 @@ export function Accounts() {
                     <strong>{a.name}</strong>
                     {a.displayName && <div className="muted small">{a.displayName}</div>}
                   </td>
-                  <td>{a.profiles || <span className="muted">all</span>}</td>
+                  <td>{(ini ? a.group : a.profiles) || <span className="muted">all</span>}</td>
                   <td>{a.ipMask || <span className="muted">any</span>}</td>
                   <td className="r">{a.maxConnections ?? '—'}</td>
                   <td className="nowrap">
                     {a.admin && <Badge tone="info">admin</Badge>}
+                    {a.expiry && <Badge tone="neutral">until {a.expiry}</Badge>}
                     {a.enabled === false && <Badge tone="bad">disabled</Badge>}
                     {a.debug && <Badge tone="warn">debug</Badge>}
                   </td>
@@ -140,14 +143,19 @@ export function Accounts() {
           </table>
         )}
         <p className="muted small">
-          Stored as <code>&lt;user&gt;</code> elements in proxy.xml. Saving posts the whole config back to the proxy,
-          which reloads it — existing sessions stay connected.
+          Stored in <code>{data.source}</code>.{' '}
+          {ini
+            ? 'Saved through the web interface of the softcam, which re-reads its accounts straight away.'
+            : data.source.endsWith('proxy.xml')
+              ? 'Saving posts the whole config back to the proxy, which reloads it — existing sessions stay connected. For hundreds of accounts, switch the proxy to XmlUserManager (install-ubuntu.sh --migrate-users) so account changes stop reloading the proxy.'
+              : 'Written directly to the user file; the proxy is told to re-read it (update-users), with no config reload.'}
         </p>
       </Card>
 
       {editing && (
         <AccountForm
           account={editing}
+          ini={ini}
           creating={creating}
           busy={busy}
           onCancel={() => {
@@ -163,12 +171,14 @@ export function Accounts() {
 
 function AccountForm({
   account,
+  ini,
   creating,
   busy,
   onCancel,
   onSave,
 }: {
   account: Account;
+  ini: boolean;
   creating: boolean;
   busy: boolean;
   onCancel: () => void;
@@ -206,18 +216,31 @@ function AccountForm({
             required={creating}
           />
         </label>
+        {ini ? (
+          <label className="cmdparam">
+            <span>Groups</span>
+            <input value={form.group ?? ''} onChange={(e) => set('group', e.target.value)} placeholder="1 (reader groups)" />
+          </label>
+        ) : (
+          <label className="cmdparam">
+            <span>Profiles</span>
+            <input
+              value={form.profiles ?? ''}
+              onChange={(e) => set('profiles', e.target.value)}
+              placeholder="cable sat (empty = all)"
+            />
+          </label>
+        )}
         <label className="cmdparam">
-          <span>Profiles</span>
-          <input
-            value={form.profiles ?? ''}
-            onChange={(e) => set('profiles', e.target.value)}
-            placeholder="cable sat (empty = all)"
-          />
-        </label>
-        <label className="cmdparam">
-          <span>IP mask</span>
+          <span>{ini ? 'Allowed host' : 'IP mask'}</span>
           <input value={form.ipMask ?? ''} onChange={(e) => set('ipMask', e.target.value)} placeholder="192.168.0.*" />
         </label>
+        {ini && (
+          <label className="cmdparam">
+            <span>Expires</span>
+            <input value={form.expiry ?? ''} onChange={(e) => set('expiry', e.target.value)} placeholder="2026-12-31" />
+          </label>
+        )}
         <label className="cmdparam">
           <span>Max connections</span>
           <input
@@ -237,14 +260,18 @@ function AccountForm({
             <input type="checkbox" checked={form.enabled !== false} onChange={(e) => set('enabled', e.target.checked)} />
             <span>Enabled</span>
           </label>
-          <label className="check">
-            <input type="checkbox" checked={!!form.admin} onChange={(e) => set('admin', e.target.checked)} />
-            <span>Admin</span>
-          </label>
-          <label className="check">
-            <input type="checkbox" checked={!!form.debug} onChange={(e) => set('debug', e.target.checked)} />
-            <span>Debug</span>
-          </label>
+          {!ini && (
+            <>
+              <label className="check">
+                <input type="checkbox" checked={!!form.admin} onChange={(e) => set('admin', e.target.checked)} />
+                <span>Admin</span>
+              </label>
+              <label className="check">
+                <input type="checkbox" checked={!!form.debug} onChange={(e) => set('debug', e.target.checked)} />
+                <span>Debug</span>
+              </label>
+            </>
+          )}
         </div>
         <div className="acctactions">
           <button type="button" className="mini" onClick={onCancel} disabled={busy}>

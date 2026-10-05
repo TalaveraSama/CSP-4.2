@@ -139,7 +139,7 @@ test('refuses nonsense instead of writing a broken proxy.xml', () => {
   );
   const err = (() => {
     try {
-      upsertAccount('<cardservproxy/>', { name: 'ok', password: 'x' }, { create: true });
+      upsertAccount('<cardserv-proxy ver="1.0"/>', { name: 'ok', password: 'x' }, { create: true });
     } catch (e) {
       return e as AccountError;
     }

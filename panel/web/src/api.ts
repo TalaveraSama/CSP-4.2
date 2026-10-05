@@ -98,7 +98,7 @@ export const api = {
 
   cache: () => request<CacheReport>('/cache'),
 
-  accounts: () => request<{ accounts: Account[]; writable: boolean }>('/accounts'),
+  accounts: () => request<{ accounts: Account[]; writable: boolean; source: string; kind: 'xml' | 'ini' }>('/accounts'),
   createAccount: (account: Account) =>
     request<CommandResult>('/accounts', {
       method: 'POST',

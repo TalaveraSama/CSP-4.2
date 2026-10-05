@@ -1,5 +1,19 @@
 import { Router, type NextFunction, type Request, type Response } from 'express';
-import { AccountError, findAccount, listAccounts, removeAccount, upsertAccount, type Account } from './accounts.js';
+import { readFile, writeFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+
+import {
+  AccountError,
+  findAccount,
+  findIniAccount,
+  listAccounts,
+  listIniAccounts,
+  removeAccount,
+  removeIniAccount,
+  upsertAccount,
+  upsertIniAccount,
+  type Account,
+} from './accounts.js';
 import { BackendError, type ProxyBackend } from './backend.js';
 import type { StatusCommand } from './csp/types.js';
 import { COOKIE_NAME, type PanelSession, type SessionStore } from './sessions.js';
@@ -258,31 +272,118 @@ export function createApiRouter(backend: ProxyBackend, sessions: SessionStore, s
 
   /* -------------------------------------------------------------- accounts */
 
-  // Accounts are stored in proxy.xml, so every operation is a fetch-cfg /
-  // edit / cfgHandler round trip. Only the CSP backend has them: OSCam and
-  // NCam keep their accounts in ncam.user, which the Config tab edits.
-  const accountsConfig = async (req: Request) => {
-    if (backend.info.kind !== 'csp') {
-      throw new AccountError(
-        `account management is only available for the CSP backend (this panel manages ${backend.info.labels.product})`,
-        501,
-      );
-    }
-    return backend.fetchConfig(req.session!.auth);
+  /**
+   * Where the client accounts of this backend live, and how to change them.
+   *
+   * Three cases, because the stack has three:
+   *  - CSP with SimpleUserManager: <user> elements inside proxy.xml, changed
+   *    with fetch-cfg / cfgHandler (the proxy reloads its whole config).
+   *  - CSP with XmlUserManager and a local file: the panel writes that file
+   *    directly and fires the `update-users` control command. proxy.xml is
+   *    never touched, nothing is reloaded — this is the one that scales to
+   *    thousands of accounts.
+   *  - OSCam/NCam: [account] blocks in ncam.user, through the webif file API.
+   */
+  interface AccountStore {
+    kind: 'xml' | 'ini';
+    /** Human readable origin, shown in the UI. */
+    source: string;
+    writable: boolean;
+    read(): Promise<string>;
+    write(content: string): Promise<void>;
+  }
+
+  const localUserFile = (xml: string): string | undefined => {
+    if (!/<user-manager[^>]*XmlUserManager/i.test(xml)) return undefined;
+    const url = /<user-file-url>\s*([^<]+?)\s*<\/user-file-url>/i.exec(xml)?.[1];
+    if (!url?.startsWith('file:')) return undefined; // http/ftp sources are not ours to edit
+    const path = url.slice('file:'.length);
+    return path.startsWith('/') ? path : resolve(process.cwd(), path);
   };
 
-  const saveAccounts = async (req: Request, xml: string, message: string) => {
-    const result = await backend.saveConfig(req.session!.auth, xml);
-    if (!result.ok) throw new AccountError(result.message || 'the proxy refused the new config', 400);
-    return { ok: true, message };
+  const accountStore = async (req: Request): Promise<AccountStore> => {
+    const auth = req.session!.auth;
+
+    if (backend.info.kind === 'csp') {
+      const config = await backend.fetchConfig(auth);
+      const file = localUserFile(config.content);
+      if (file) {
+        return {
+          kind: 'xml',
+          source: file,
+          writable: true,
+          read: async () => {
+            try {
+              return await readFile(file, 'utf8');
+            } catch (err) {
+              if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+                return '<?xml version="1.0" encoding="UTF-8"?>\n<user-manager>\n  <auth-config>\n  </auth-config>\n</user-manager>\n';
+              }
+              throw new AccountError(`cannot read ${file}: ${(err as Error).message}`, 502);
+            }
+          },
+          write: async (content) => {
+            try {
+              await writeFile(file, content, { mode: 0o640 });
+            } catch (err) {
+              throw new AccountError(`cannot write ${file}: ${(err as Error).message}`, 502);
+            }
+            // Tell the proxy to pick it up now instead of at the next poll.
+            await backend.control(auth, 'update-users', {}).catch(() => undefined);
+          },
+        };
+      }
+      return {
+        kind: 'xml',
+        source: config.name,
+        writable: config.writable,
+        read: async () => config.content,
+        write: async (content) => {
+          const result = await backend.saveConfig(auth, content);
+          if (!result.ok) throw new AccountError(result.message || 'the proxy refused the new config', 400);
+        },
+      };
+    }
+
+    // OSCam and NCam: the accounts file of the running softcam.
+    const file = backend.info.configFiles.find((f) => f.endsWith('.user'));
+    if (!file) throw new AccountError('this backend has no accounts file', 501);
+    const current = await backend.fetchConfig(auth, file);
+    return {
+      kind: 'ini',
+      source: file,
+      writable: current.writable,
+      read: async () => current.content,
+      write: async (content) => {
+        const result = await backend.saveConfig(auth, content, file);
+        if (!result.ok) throw new AccountError(result.message || `${backend.info.labels.product} refused the file`, 400);
+      },
+    };
   };
+
+  const readAccounts = (store: AccountStore, text: string) =>
+    store.kind === 'xml' ? listAccounts(text) : listIniAccounts(text);
+  const findOne = (store: AccountStore, text: string, name: string) =>
+    store.kind === 'xml' ? findAccount(text, name) : findIniAccount(text, name);
+  const upsert = (store: AccountStore, text: string, account: Account, create: boolean) =>
+    store.kind === 'xml'
+      ? upsertAccount(text, account, { create })
+      : upsertIniAccount(text, account, { create });
+  const remove = (store: AccountStore, text: string, name: string) =>
+    store.kind === 'xml' ? removeAccount(text, name) : removeIniAccount(text, name);
 
   api.get(
     '/accounts',
     requireAdmin,
     wrap(async (req, res) => {
-      const file = await accountsConfig(req);
-      res.json({ accounts: listAccounts(file.content), writable: file.writable });
+      const store = await accountStore(req);
+      const text = await store.read();
+      res.json({
+        accounts: readAccounts(store, text),
+        writable: store.writable,
+        source: store.source,
+        kind: store.kind,
+      });
     }),
   );
 
@@ -290,10 +391,10 @@ export function createApiRouter(backend: ProxyBackend, sessions: SessionStore, s
     '/accounts',
     requireAdmin,
     wrap(async (req, res) => {
-      const file = await accountsConfig(req);
+      const store = await accountStore(req);
       const account = req.body as Account;
-      const xml = upsertAccount(file.content, account, { create: true });
-      res.json(await saveAccounts(req, xml, `account ${account.name} created`));
+      await store.write(upsert(store, await store.read(), account, true));
+      res.json({ ok: true, message: `account ${account.name} created` });
     }),
   );
 
@@ -301,15 +402,16 @@ export function createApiRouter(backend: ProxyBackend, sessions: SessionStore, s
     '/accounts/:name',
     requireAdmin,
     wrap(async (req, res) => {
-      const file = await accountsConfig(req);
-      const current = findAccount(file.content, req.params.name!);
+      const store = await accountStore(req);
+      const text = await store.read();
+      const current = findOne(store, text, req.params.name!);
       if (!current) throw new AccountError(`there is no account called "${req.params.name}"`, 404);
       // An empty password means "leave it as it was".
       const patch = req.body as Partial<Account>;
       const account: Account = { ...current, ...patch, name: current.name };
       if (!patch.password) account.password = current.password;
-      const xml = upsertAccount(file.content, account, { create: false });
-      res.json(await saveAccounts(req, xml, `account ${account.name} updated`));
+      await store.write(upsert(store, text, account, false));
+      res.json({ ok: true, message: `account ${account.name} updated` });
     }),
   );
 
@@ -317,9 +419,9 @@ export function createApiRouter(backend: ProxyBackend, sessions: SessionStore, s
     '/accounts/:name',
     requireAdmin,
     wrap(async (req, res) => {
-      const file = await accountsConfig(req);
-      const xml = removeAccount(file.content, req.params.name!);
-      res.json(await saveAccounts(req, xml, `account ${req.params.name} removed`));
+      const store = await accountStore(req);
+      await store.write(remove(store, await store.read(), req.params.name!));
+      res.json({ ok: true, message: `account ${req.params.name} removed` });
     }),
   );
 

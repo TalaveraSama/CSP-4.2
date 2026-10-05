@@ -153,6 +153,33 @@ Para unirse a un cluster que ya tengas, sin instalar CSP:
 sudo bash panel/packaging/install-ubuntu.sh --cache-peers 10.8.0.2:54278,127.0.0.1:54279 --yes
 ```
 
+## Cuentas de clientes (los dos paneles)
+
+La pestaña **Accounts** funciona con los dos backends:
+
+| Backend | Dónde escribe | Cómo se aplica |
+| --- | --- | --- |
+| CSP (recomendado) | `/etc/cardservproxy/users.xml` | el panel escribe el fichero y lanza `update-users`: **no recarga el proxy** |
+| CSP (instalación antigua) | `<user>` dentro de `proxy.xml` | se reenvía por `/cfgHandler` y el proxy recarga su configuración entera |
+| OSCam / NCam | `ncam.user` | se guarda por el webif y el softcam relee las cuentas al instante |
+
+### Miles de usuarios
+
+Con las cuentas dentro de `proxy.xml`, **cada alta recarga el proxy entero**.
+Con 1000 clientes eso no es sostenible, así que el instalador configura
+`XmlUserManager`: `proxy.xml` se queda solo con los perfiles, conectores,
+cache y la cuenta admin, y los clientes viven en `users.xml`.
+
+Si ya tenías una instalación con las cuentas dentro de `proxy.xml`:
+
+```bash
+sudo bash panel/packaging/install-ubuntu.sh --migrate-users
+```
+
+Mueve los clientes a `users.xml`, deja los admin en `proxy.xml` (para que el
+login del panel no dependa de un fichero que el propio panel reescribe),
+cambia la clase del `user-manager` y guarda copia de seguridad del original.
+
 ## ¿Y las contraseñas?
 
 Ninguna pieza tiene usuarios propios: **el panel reenvía el login a lo que
@@ -236,6 +263,7 @@ como administrador.
 | `--csp-client-port`, `--csp-caid` | puerto newcamd para tus clientes y CAID del perfil |
 | `--cache-peers`, `--cache-port` | se une al cluster de cache y activa la pestaña *Cache* |
 | `--credentials` | enseña qué cuentas hay y en qué fichero |
+| `--migrate-users` | saca las cuentas de `proxy.xml` a `users.xml` (para miles de clientes) |
 | `--reset-password [CLAVE]` | nueva contraseña para la cuenta con la que entras al panel |
 | `--add-user NOMBRE [CLAVE]` | alta de un cliente |
 | `--ncam-port/-user/-pass` | ajustes del webif de NCam que se crea |

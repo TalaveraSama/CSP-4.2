@@ -15,7 +15,9 @@ WorkingDirectory=/opt/cardservproxy
 # so the flag its own cardproxy.sh only mentions in a comment is now mandatory.
 # networkaddress.cache.ttl replaces the Sun-only sun.net.inetaddr.ttl: it keeps
 # the JVM from caching DNS forever, which matters for peers on dynamic IPs.
-ExecStart=/usr/bin/java -Dcom.bowman.cardserv.allowanyjvm=true -Dnetworkaddress.cache.ttl=0 -Xmx256m -jar /opt/cardservproxy/lib/cardservproxy.jar
+# The config path is passed explicitly: ProxyConfig.DEFAULT_CONFIG is
+# "config/proxy.xml", relative to the working directory, which is a trap.
+ExecStart=/usr/bin/java -Dcom.bowman.cardserv.allowanyjvm=true -Dnetworkaddress.cache.ttl=0 -Xmx512m -jar /opt/cardservproxy/lib/cardservproxy.jar /etc/cardservproxy/proxy.xml
 Restart=always
 RestartSec=5
 LimitNOFILE=8192

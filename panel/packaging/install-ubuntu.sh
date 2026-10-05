@@ -106,6 +106,10 @@ Usage: sudo bash install-ubuntu.sh [options]
                              'skip' trusts the Node.js already on the box
   -y, --yes                  non-interactive, accept the defaults
   --force                    run on a distribution that is not Ubuntu 20/22/24
+  --migrate-users            move the proxy's client accounts out of proxy.xml
+                             into users.xml (XmlUserManager), so adding an
+                             account no longer reloads the proxy — do this
+                             before you get to hundreds of accounts
   --credentials              show which accounts exist and where they live
   --reset-password [PASS]    give the panel admin account a new password
                              (random when PASS is omitted)
@@ -152,6 +156,7 @@ while [ $# -gt 0 ]; do
     -y|--yes)      ASSUME_YES=1; shift ;;
     --force)       FORCE=1; shift ;;
     --credentials) ACTION=credentials; shift ;;
+    --migrate-users) ACTION=migrate; shift ;;
     --reset-password) ACTION=reset; NEW_PASSWORD="${2:-}"; [ -n "${2:-}" ] && shift; shift ;;
     --add-user)    ACTION=adduser; NEW_USER="${2:?--add-user needs a name}"; NEW_PASSWORD="${3:-}"; shift 2; [ -n "${NEW_PASSWORD:-}" ] && shift || true ;;
     --uninstall)   ACTION=uninstall; shift ;;
@@ -370,8 +375,68 @@ EOF
   fi
 }
 
+migrate_users() {
+  [ -f "$CSP_CONF" ] || die "no $CSP_CONF on this machine"
+  local users=/etc/cardservproxy/users.xml
+  cp -a "$CSP_CONF" "$CSP_CONF.bak-$(date +%Y%m%d%H%M%S)"
+  python3 - "$CSP_CONF" "$users" <<'PY'
+import re, sys
+
+proxy_path, users_path = sys.argv[1:3]
+text = open(proxy_path).read()
+
+manager = re.search(r'<user-manager\b[\s\S]*?</user-manager\s*>', text)
+if not manager:
+    sys.exit('proxy.xml has no <user-manager> section')
+block = manager.group(0)
+
+# Admins keep working from proxy.xml: that is the panel login, and it must not
+# depend on a file the panel itself rewrites.
+users = [m.group(0) for m in re.finditer(r'[ \t]*<user\b[^>]*/>', block)]
+moved = [u for u in users if 'admin="true"' not in u]
+kept = [u for u in users if 'admin="true"' in u]
+
+try:
+    existing = open(users_path).read()
+except FileNotFoundError:
+    existing = '<?xml version="1.0" encoding="UTF-8"?>\n<xml-user-manager ver="1.0">\n</xml-user-manager>\n'
+
+names = set(re.findall(r'<user\b[^>]*name="([^"]*)"', existing))
+add = [u.strip() for u in moved if (re.search(r'name="([^"]*)"', u) or [None]) and re.search(r'name="([^"]*)"', u).group(1) not in names]
+if add:
+    existing = existing.replace('</xml-user-manager>', '  ' + '\n  '.join(add) + '\n</xml-user-manager>')
+open(users_path, 'w').write(existing)
+
+new_block = block
+for u in moved:
+    new_block = new_block.replace(u + '\n', '', 1)
+    new_block = new_block.replace(u, '', 1)
+
+new_block = re.sub(r'class="com\.bowman\.cardserv\.SimpleUserManager"',
+                   'class="com.bowman.cardserv.XmlUserManager"', new_block)
+if 'XmlUserManager' not in new_block:
+    sys.exit('unexpected user-manager class, migrate by hand')
+
+if 'user-file-url' not in new_block:
+    anchor = re.search(r'([ \t]*)</auth-config\s*>', new_block)
+    if not anchor:
+        sys.exit('proxy.xml has no <auth-config> inside <user-manager>')
+    indent = anchor.group(1) + '  '
+    insert = f'{indent}<user-file-url>file:{users_path}</user-file-url>\n{indent}<update-interval>5</update-interval>\n'
+    new_block = new_block[:anchor.start()] + insert + new_block[anchor.start():]
+
+open(proxy_path, 'w').write(text.replace(block, new_block))
+print(f'moved {len(moved)} account(s), kept {len(kept)} admin(s) in proxy.xml')
+PY
+  chmod 660 "$users"; chown root:$PKG "$users" 2>/dev/null || true
+  systemd_running && systemctl restart cardservproxy.service 2>/dev/null || true
+  ok "accounts now live in $users (backup: $CSP_CONF.bak-*)"
+  ok "the panel writes that file directly and runs update-users: no more proxy reloads"
+}
+
 case "$ACTION" in
   credentials) show_credentials; exit 0 ;;
+  migrate)     migrate_users;   exit 0 ;;
   reset)       reset_password;  exit 0 ;;
   adduser)     add_user;        exit 0 ;;
 esac
@@ -598,9 +663,18 @@ install_csp() {
     <log-level>i</log-level>
   </logging>
 
-  <user-manager class="com.bowman.cardserv.SimpleUserManager" log-failures="true">
+  <!--
+    XmlUserManager, not SimpleUserManager: the client accounts live in their
+    own file, so adding or editing one does not rewrite proxy.xml and does not
+    reload the proxy. That is what keeps a thousand accounts manageable. The
+    panel writes users.xml and then runs the update-users command.
+    The admin below stays here so you can always log into the panel.
+  -->
+  <user-manager class="com.bowman.cardserv.XmlUserManager" log-failures="true">
     <auth-config>
       <user name="$user" password="$pass" admin="true"/>
+      <user-file-url>file:$conf/users.xml</user-file-url>
+      <update-interval>5</update-interval>
     </auth-config>
   </user-manager>
 
@@ -641,6 +715,16 @@ install_csp() {
 EOF
     chmod 640 "$conf/proxy.xml"
     chown root:cardservproxy "$conf/proxy.xml"
+    if [ ! -f "$conf/users.xml" ]; then
+      cat > "$conf/users.xml" <<'EOF2'
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Client accounts. Managed from the panel (Accounts tab). -->
+<xml-user-manager ver="1.0">
+</xml-user-manager>
+EOF2
+    fi
+    chmod 660 "$conf/users.xml"
+    chown root:$PKG "$conf/users.xml" 2>/dev/null || true
     CSP_CREDENTIALS="$user / $pass"
     ok "wrote $conf/proxy.xml (clients on newcamd $client_port, status-web $web)"
   else
@@ -650,12 +734,15 @@ EOF
   fi
   CSP_WEB_PORT="$web"
 
-  # The proxy reads proxy.xml from its working dir; keep the real file in /etc.
-  ln -sfn "$conf/proxy.xml" "$prefix/proxy.xml"
+  # Started by hand, the proxy looks for config/proxy.xml under its working
+  # directory (ProxyConfig.DEFAULT_CONFIG); the unit passes the path instead.
+  install -d -m 755 "$prefix/config"
+  ln -sfn "$conf/proxy.xml" "$prefix/config/proxy.xml"
+  chown -h cardservproxy:cardservproxy "$prefix/config/proxy.xml"
 
   # ---- teach NCam about the proxy ------------------------------------------
   if [ -f /etc/ncam/ncam.conf ]; then
-    configure_ncam_for_csp "$ncamd_port" "$cache_remote" "$cache_local" "$deskey"
+    configure_ncam_for_csp "$ncamd_port" "$cache_remote" "$cache_local" "$deskey" "$caid"
   else
     warn "no /etc/ncam/ncam.conf: add a newcamd port and 'csp_port = $cache_remote' to your softcam by hand"
   fi
@@ -690,14 +777,17 @@ EOF
 # Add the newcamd server port, the proxy account and the CSP cache port to an
 # existing ncam.conf/ncam.user, without disturbing anything already there.
 configure_ncam_for_csp() {
-  local ncamd_port="$1" csp_port="$2" csp_peer="$3" deskey="$4"
+  local ncamd_port="$1" csp_port="$2" csp_peer="$3" deskey="$4" caid="${5:-0x0000}"
   local conf=/etc/ncam/ncam.conf users=/etc/ncam/ncam.user changed=0
+  # newcamd ports are declared as port@caid:provid; a port with caid 0000
+  # answers nothing useful to the proxy.
+  local caid_hex="${caid#0x}"; caid_hex="${caid_hex#0X}"
 
   if ! grep -q '^\[newcamd\]' "$conf"; then
     cat >> "$conf" <<EOF
 
 [newcamd]
-port                          = ${ncamd_port}@0000:000000
+port                          = ${ncamd_port}@${caid_hex}:000000
 key                           = $deskey
 EOF
     changed=1

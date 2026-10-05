@@ -25,6 +25,10 @@ export interface Account {
   displayName?: string;
   email?: string;
   mapExcluded?: boolean;
+  /** OSCam/NCam only: the reader groups this account may use. */
+  group?: string;
+  /** OSCam/NCam only: expiry date (expdate), e.g. 2026-12-31. */
+  expiry?: string;
 }
 
 /** Attribute name in proxy.xml <-> field in the Account model. */
@@ -55,15 +59,27 @@ const USER_RE = /([ \t]*)<user(?=[\s/>])([^>]*?)(\/>|>[\s\S]*?<\/user\s*>)/g;
 const MANAGER_RE = /<user-manager\b[\s\S]*?<\/user-manager\s*>/;
 
 /**
- * Accounts are only looked for inside <user-manager>. proxy.xml has other
- * `<user>` elements — the credentials of every newcamd-connector, for one —
- * and inserting an account next to those would quietly break the proxy.
+ * Where the accounts of this document live.
+ *
+ * Two shapes, both of them CSP's:
+ *  - proxy.xml: only inside <user-manager>. The file has other `<user>`
+ *    elements — the credentials of every newcamd-connector, for one — and
+ *    inserting an account next to those would quietly break the proxy.
+ *  - a standalone user file (XmlUserManager's user-file-url): a document
+ *    whose root holds nothing but accounts. Upstream ignores the root element
+ *    name, so we do too.
  */
 function managerRegion(xml: string): { start: number; end: number; text: string } | undefined {
   const m = MANAGER_RE.exec(xml);
-  if (!m) return undefined;
-  return { start: m.index, end: m.index + m[0].length, text: m[0] };
+  if (m) return { start: m.index, end: m.index + m[0].length, text: m[0] };
+  // A proxy.xml without <user-manager> has nowhere to put accounts; anything
+  // else is the external user file.
+  if (/<cardserv-proxy\b/i.test(xml)) return undefined;
+  return { start: 0, end: xml.length, text: xml };
 }
+
+/** Last closing tag of a standalone user file: where a new account goes. */
+const ROOT_CLOSE_RE = /([ \t]*)<\/[A-Za-z][\w.-]*\s*>(?=\s*$)/;
 
 export class AccountError extends Error {
   constructor(
@@ -197,9 +213,15 @@ export function upsertAccount(xml: string, account: Account, { create }: { creat
   }
 
   // First account: inside <auth-config> when the file has one, because that
-  // is the path SimpleUserManager reads (user-manager/auth-config/user).
-  const anchor = (/([ \t]*)<\/auth-config\s*>/.exec(region.text) ??
-    /([ \t]*)<\/user-manager\s*>/.exec(region.text))!;
+  // is the path SimpleUserManager reads (user-manager/auth-config/user); in a
+  // standalone user file, just before the closing root element.
+  const anchor =
+    /([ \t]*)<\/auth-config\s*>/.exec(region.text) ??
+    /([ \t]*)<\/user-manager\s*>/.exec(region.text) ??
+    ROOT_CLOSE_RE.exec(region.text);
+  if (!anchor) {
+    throw new AccountError('the user file has no element to put accounts in', 409);
+  }
   const at = region.start + anchor.index;
   const indent = `${anchor[1] ?? ''}  `;
   return `${xml.slice(0, at)}${indent}${toElement(account)}\n${xml.slice(at)}`;
@@ -218,4 +240,158 @@ export function removeAccount(xml: string, name: string): string {
     return xml.slice(0, start) + xml.slice(end);
   }
   throw new AccountError(`there is no account called "${name}"`, 404);
+}
+
+/* -------------------------------------------------------------------------
+ * OSCam / NCam accounts: ncam.user, an ini file of [account] blocks.
+ *
+ * Same rule as proxy.xml: edit the text, never regenerate it. These files are
+ * full of per-account tuning (caid, ident, services, cacheex, betatunnel…)
+ * that the panel does not model, and losing it on a password change would be
+ * unforgivable.
+ * ---------------------------------------------------------------------- */
+
+/** Account model field <-> ncam.user key. */
+const INI_FIELDS: ReadonlyArray<readonly [keyof Account, string]> = [
+  ['name', 'user'],
+  ['password', 'pwd'],
+  ['displayName', 'description'],
+  ['ipMask', 'hostname'],
+  ['group', 'group'],
+  ['maxConnections', 'max_connections'],
+  ['expiry', 'expdate'],
+];
+
+const INI_PAD = 30;
+
+function iniLine(key: string, value: string): string {
+  return `${key.padEnd(INI_PAD)}= ${value}`;
+}
+
+interface IniBlock {
+  start: number;
+  end: number;
+  lines: string[];
+}
+
+/** Split the file into [account] blocks, keeping their exact text. */
+function iniBlocks(text: string): IniBlock[] {
+  const lines = text.split('\n');
+  const out: IniBlock[] = [];
+  let start = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!.trim().toLowerCase();
+    if (line === '[account]') {
+      if (start >= 0) out.push({ start, end: i, lines: lines.slice(start, i) });
+      start = i;
+    } else if (/^\[[a-z]+\]$/.test(line) && start >= 0) {
+      out.push({ start, end: i, lines: lines.slice(start, i) });
+      start = -1;
+    }
+  }
+  if (start >= 0) out.push({ start, end: lines.length, lines: lines.slice(start) });
+  return out;
+}
+
+function iniGet(block: IniBlock, key: string): string | undefined {
+  for (const line of block.lines) {
+    const m = /^\s*([A-Za-z0-9_]+)\s*=\s*(.*?)\s*$/.exec(line);
+    if (m && m[1]!.toLowerCase() === key) return m[2];
+  }
+  return undefined;
+}
+
+function blockToAccount(block: IniBlock): Account | undefined {
+  const name = iniGet(block, 'user');
+  if (!name) return undefined;
+  const account: Account = { name, password: iniGet(block, 'pwd') ?? '' };
+  for (const [field, key] of INI_FIELDS) {
+    if (field === 'name' || field === 'password') continue;
+    const value = iniGet(block, key);
+    if (value === undefined || value === '') continue;
+    if (field === 'maxConnections') {
+      const n = Number(value);
+      if (Number.isFinite(n)) account.maxConnections = n;
+    } else {
+      (account[field] as string) = value;
+    }
+  }
+  // NCam stores the negative: disabled = 1.
+  account.enabled = iniGet(block, 'disabled') !== '1';
+  return account;
+}
+
+export function listIniAccounts(text: string): Account[] {
+  const out: Account[] = [];
+  for (const block of iniBlocks(text)) {
+    const account = blockToAccount(block);
+    if (account) out.push(account);
+  }
+  return out;
+}
+
+export function findIniAccount(text: string, name: string): Account | undefined {
+  return listIniAccounts(text).find((a) => a.name === name);
+}
+
+/** Rewrite one block, keeping every key the panel does not know about. */
+function applyToBlock(lines: string[], account: Account): string[] {
+  const wanted = new Map<string, string | undefined>();
+  for (const [field, key] of INI_FIELDS) {
+    const value = account[field];
+    wanted.set(key, value === undefined || value === '' ? undefined : String(value));
+  }
+  wanted.set('disabled', account.enabled === false ? '1' : undefined);
+
+  const seen = new Set<string>();
+  const out = lines.map((line) => {
+    const m = /^(\s*)([A-Za-z0-9_]+)(\s*)=\s*(.*?)\s*$/.exec(line);
+    if (!m) return line;
+    const key = m[2]!.toLowerCase();
+    if (!wanted.has(key)) return line; // not ours: leave it exactly as it is
+    seen.add(key);
+    const value = wanted.get(key);
+    // Dropping a value means dropping the line (e.g. re-enabling an account).
+    return value === undefined ? null : iniLine(m[2]!, value);
+  }).filter((line): line is string => line !== null);
+
+  // New keys go after the last real line of the block, not after the blank
+  // line that separates it from the next [account].
+  const trailing: string[] = [];
+  while (out.length > 0 && out[out.length - 1]!.trim() === '') trailing.unshift(out.pop()!);
+  for (const [key, value] of wanted) {
+    if (value === undefined || seen.has(key)) continue;
+    out.push(iniLine(key, value));
+  }
+  return [...out, ...trailing];
+}
+
+export function upsertIniAccount(text: string, account: Account, { create }: { create: boolean }): string {
+  validate(account);
+  const lines = text.split('\n');
+  const blocks = iniBlocks(text);
+  const existing = blocks.find((b) => iniGet(b, 'user') === account.name);
+
+  if (existing) {
+    if (create) throw new AccountError(`the account "${account.name}" already exists`, 409);
+    const replaced = applyToBlock(existing.lines, account);
+    return [...lines.slice(0, existing.start), ...replaced, ...lines.slice(existing.end)].join('\n');
+  }
+
+  if (!create) throw new AccountError(`there is no account called "${account.name}"`, 404);
+
+  const block = applyToBlock(['[account]'], account);
+  const body = text.replace(/\s*$/, '');
+  return `${body}\n\n${block.join('\n')}\n`;
+}
+
+export function removeIniAccount(text: string, name: string): string {
+  const lines = text.split('\n');
+  const block = iniBlocks(text).find((b) => iniGet(b, 'user') === name);
+  if (!block) throw new AccountError(`there is no account called "${name}"`, 404);
+  let start = block.start;
+  // Swallow the blank lines that separated this block from the previous one.
+  while (start > 0 && lines[start - 1]!.trim() === '') start -= 1;
+  const kept = [...lines.slice(0, start), ...lines.slice(block.end)];
+  return kept.join('\n').replace(/^\n+/, '');
 }

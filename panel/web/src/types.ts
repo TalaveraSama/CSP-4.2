@@ -248,6 +248,8 @@ export interface Account {
   displayName?: string;
   email?: string;
   mapExcluded?: boolean;
+  group?: string;
+  expiry?: string;
 }
 
 export interface CachePeerStats {

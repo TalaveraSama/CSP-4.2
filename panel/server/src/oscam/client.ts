@@ -151,7 +151,7 @@ export function oscamInfo(target: string, mock: boolean, flavour: OscamFlavour =
     target,
     configFormat: 'ini',
     configFiles: flavour.configFiles,
-    features: { profiles: true, cache: false, plugins: false, connectorServices: false, seen: true, accounts: false },
+    features: { profiles: true, cache: false, plugins: false, connectorServices: false, seen: true, accounts: true },
     labels: { connectors: 'Readers', connector: 'Reader', profiles: 'CAIDs', product: flavour.label },
   };
 }
