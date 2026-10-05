@@ -672,12 +672,18 @@ EOF
     done
     if ss -lnt 2>/dev/null | grep -q ":${web}\b"; then
       ok "cardservproxy.service listening on 127.0.0.1:${web}"
+      CSP_READY=1
     else
-      warn "CSP is installed but its status-web is not answering on ${web} yet"
+      warn "CSP is installed but its status-web never came up on ${web}"
+      warn "  journalctl -u cardservproxy -n 40 --no-pager"
+      warn "  tail -40 $prefix/log/cardservproxy.log"
     fi
   else
     warn "systemd is not running here; start it with: java -jar $prefix/lib/cardservproxy.jar"
   fi
+  # Only claim success when the proxy is actually answering: pointing the
+  # panel at a dead status-web is how you end up locked out of your own panel.
+  [ "${CSP_READY:-0}" = 1 ] || return 1
   INSTALL_CSP_DONE=1
 }
 
@@ -886,7 +892,8 @@ fi
 if [ "$INSTALL_CSP" = 1 ]; then
   if ! install_csp; then
     # Half a stack beats no stack: keep the panel on the softcam and say so.
-    warn "CardServProxy was not installed; continuing without it"
+    warn "CardServProxy is not usable; leaving the panel on the softcam"
+    warn "fix it, then: sudo bash $SELF --backend csp --url http://127.0.0.1:${CSP_WEB_PORT:-8082} --yes"
     CSP_FAILED=1
     INSTALL_CSP=0
   fi
