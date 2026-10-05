@@ -558,6 +558,21 @@ show_status() {
     esac
   done
 
+  # "active" means nothing if the process is not listening: that is exactly
+  # how a proxy that fails half way through its startup looks.
+  local pair name port
+  for pair in "csp-panel:${PORT:-8090}" "ncam:8888" "cardservproxy:8082" "csp-cache-node:8099"; do
+    name="${pair%%:*}"; port="${pair##*:}"
+    systemd_running || break
+    [ "$(systemctl is-active "$name" 2>/dev/null)" = active ] || continue
+    ss -lnt 2>/dev/null | grep -q ":${port}\b" && continue
+    echo
+    warn "$name is running but nothing is listening on ${port}; last lines of its log:"
+    journalctl -u "$name" -n 12 --no-pager 2>/dev/null | tail -8 | sed 's/^/      /'
+    [ "$name" = cardservproxy ] && [ -f /opt/cardservproxy/log/cardservproxy.log ] && \
+      tail -8 /opt/cardservproxy/log/cardservproxy.log | sed 's/^/      /'
+  done
+
   echo
   echo "${BOLD}Ports${OFF}"
   local p desc
