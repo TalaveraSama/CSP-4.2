@@ -76,6 +76,34 @@ test('uses the /ncamapi.html endpoint', async () => {
   assert.deepEqual(seen, ['/ncamapi.html', '/ncamapi.html']);
 });
 
+test('reports the product name and a writable config despite the webif quirk', async () => {
+  // Real NCam/OSCam always answer writable="0" for config files (the template
+  // variable is filled before the flag is computed); httpreadonly is the real
+  // permission, so the editor must stay enabled.
+  const doc = (readonly: string) =>
+    `<?xml version="1.0" encoding="UTF-8"?>\n<ncam version="Unofficial" revision="gitb988280" starttime="2026-10-05T02:41:01+0000" uptime="42" readonly="${readonly}">\n\t<file filename="ncam.user" writable="0"><![CDATA[[account]]]></file>\n</ncam>`;
+  const transport = (readonly: string): OscamTransport => ({
+    target: 'http://box:8888',
+    async get() {
+      return doc(readonly);
+    },
+    async post() {
+      return doc(readonly);
+    },
+  });
+
+  const rw = await new OscamClient(transport('0'), false, NCAM_FLAVOUR).fetchConfig(auth, 'ncam.user');
+  assert.equal(rw.writable, true, 'editable when httpreadonly=0');
+
+  const ro = await new OscamClient(transport('1'), false, NCAM_FLAVOUR).fetchConfig(auth, 'ncam.user');
+  assert.equal(ro.writable, false, 'read-only when httpreadonly=1');
+});
+
+test('the proxy card shows the fork name, not OSCam', async () => {
+  const snap = await ncam().snapshot(auth, [{ command: 'proxy-status' }]);
+  assert.match(snap.proxy?.name ?? '', /^NCam/);
+});
+
 test('restart/shutdown commands are labelled NCam', async () => {
   const snap = await ncam().snapshot(auth, [{ command: 'ctrl-commands' }]);
   const server = snap.commandGroups.find((g) => g.name === 'Server');

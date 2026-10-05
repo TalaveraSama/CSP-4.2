@@ -46,4 +46,12 @@ the mapping of every legacy artefact to its replacement, and
 [`panel/packaging/README.md`](panel/packaging/README.md) for the `.deb`
 ([guía de instalación en español](panel/packaging/INSTALL.es.md)).
 
+NCam itself is vendored in [`vendor/ncam`](vendor/README.md) (copy of
+`fairbird/NCam`, GPL-3), so a single command installs the softcam and the panel
+on a clean Ubuntu box:
+
+```bash
+sudo bash panel/packaging/install-ubuntu.sh --install-ncam --backend ncam --yes
+```
+
 The old `web/` tree is left untouched, so existing deployments keep working.

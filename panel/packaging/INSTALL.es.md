@@ -37,6 +37,34 @@ curl -fsSL https://raw.githubusercontent.com/TalaveraSama/CSP-4.2/arena/01a0f2ba
   | sudo bash -s -- --backend oscam --url http://127.0.0.1:8888 --yes
 ```
 
+## Instalar también NCam (softcam + panel de una vez)
+
+El repositorio trae NCam en [`vendor/ncam`](../../vendor/README.md) (copia de
+`fairbird/NCam`, GPL-3). Con `--install-ncam` el instalador lo compila y lo
+deja funcionando:
+
+```bash
+sudo bash panel/packaging/install-ubuntu.sh --install-ncam --backend ncam --yes
+```
+
+Eso hace, además de instalar el panel:
+
+1. instala las dependencias de compilación (`build-essential`, `libssl-dev`,
+   `libusb-1.0-0-dev`, `libpcsclite-dev`, `zlib1g-dev`),
+2. compila `vendor/ncam` y copia el binario a `/usr/local/bin/ncam`,
+3. si no existe, escribe `/etc/ncam/ncam.conf` con el webif en el puerto 8888,
+   usuario `admin` y **contraseña aleatoria** (te la imprime al terminar), con
+   `httpallowed=127.0.0.1,::1`,
+4. instala y arranca `ncam.service`,
+5. configura el panel con `BACKEND=ncam` y `NCAM_URL=http://127.0.0.1:8888`.
+
+Opciones: `--ncam-port`, `--ncam-user`, `--ncam-pass`. Si ya tenías
+`/etc/ncam/ncam.conf` **no se toca**: se reutiliza el puerto que ya tuvieras.
+
+Gestión: `systemctl status ncam`, `journalctl -u ncam -f`. Los ficheros
+`ncam.conf`, `ncam.user`, `ncam.server`… se editan desde la pestaña *Config*
+del panel.
+
 ## Qué hace, paso a paso
 
 1. Comprueba que es Ubuntu 20.04, 22.04 o 24.04 (`--force` para Debian 11/12).
@@ -70,6 +98,8 @@ curl -fsSL https://raw.githubusercontent.com/TalaveraSama/CSP-4.2/arena/01a0f2ba
 | Opción | Para qué |
 | --- | --- |
 | `--backend oscam\|ncam\|csp\|mock` | qué softcam gestiona el panel (`ncam` = fork de OSCam) |
+| `--install-ncam` | compila e instala NCam (de `vendor/ncam`) y apunta el panel a él |
+| `--ncam-port/-user/-pass` | ajustes del webif de NCam que se crea |
 | `--url URL` | interfaz web del softcam, local o remota (OSCam/NCam `httpport`, CSP status-web) |
 | `--port N` / `--listen ADDR` | dónde escucha el panel (por defecto `127.0.0.1:8090`) |
 | `--domain HOST` | además configura un vhost de nginx para ese dominio |

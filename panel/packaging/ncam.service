@@ -1,0 +1,19 @@
+[Unit]
+Description=NCam softcam
+Documentation=https://github.com/fairbird/NCam
+After=network-online.target pcscd.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# No -b here: systemd wants the daemon in the foreground.
+# NCam talks to card readers (/dev/ttyUSB*, pcscd, dvb devices), which is why
+# it runs as root like every other softcam install.
+ExecStart=/usr/local/bin/ncam -c /etc/ncam
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=5
+LimitNOFILE=8192
+
+[Install]
+WantedBy=multi-user.target

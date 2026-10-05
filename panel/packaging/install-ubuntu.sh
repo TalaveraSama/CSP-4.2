@@ -21,6 +21,12 @@ SELF="$(basename "${BASH_SOURCE[0]:-$0}")"
 case "$SELF" in bash|sh|-bash|-sh|"") SELF="install-ubuntu.sh" ;; esac
 CONF_DIR=/etc/$PKG
 CONF=$CONF_DIR/panel.env
+INSTALL_NCAM=0
+NCAM_PORT=""
+NCAM_USER=""
+NCAM_PASS=""
+NCAM_REPO=${NCAM_REPO:-https://github.com/fairbird/NCam.git}
+NCAM_MAKE_FLAGS=${NCAM_MAKE_FLAGS:-}
 NODE_MAJOR=${NODE_MAJOR:-22}       # Node.js line installed when the distro's is too old
 NODE_FROM=${NODE_FROM:-auto}       # auto | nodesource | tarball | skip
 NODE_MIRROR=${NODE_MIRROR:-https://nodejs.org/dist}
@@ -58,6 +64,12 @@ Usage: sudo bash install-ubuntu.sh [options]
   --domain HOST              also configure an nginx vhost for HOST
   --base-path /csp/          serve the panel from a sub-directory instead
   --no-nginx                 never touch nginx
+  --install-ncam             also build and install NCam itself (from
+                             vendor/ncam, GPL-3) as the ncam.service unit, with
+                             its web interface enabled, and point the panel at it
+  --ncam-port N              NCam web interface port              (default 8888)
+  --ncam-user NAME           NCam web interface user              (default admin)
+  --ncam-pass PASS           NCam web interface password      (default: random)
   --deb FILE                 install this prebuilt .deb instead of building
   --node-major N             Node.js line to install if missing   (default $NODE_MAJOR)
   --node-from WHERE          auto (default) | nodesource | tarball | skip
@@ -75,6 +87,7 @@ Examples:
   sudo bash install-ubuntu.sh --backend mock -y                 # just try it
   sudo bash install-ubuntu.sh --backend oscam --url http://192.168.1.10:8888 \\
                               --domain panel.example.com -y
+  sudo bash install-ubuntu.sh --install-ncam --backend ncam -y    # softcam + panel
 EOF
 }
 
@@ -90,6 +103,10 @@ while [ $# -gt 0 ]; do
     --node-major)  NODE_MAJOR="${2:?}"; shift 2 ;;
     --node-from)   NODE_FROM="${2:?}"; shift 2 ;;
     --no-nginx)    WANT_NGINX=no; shift ;;
+    --install-ncam) INSTALL_NCAM=1; shift ;;
+    --ncam-port)   NCAM_PORT="${2:?}"; shift 2 ;;
+    --ncam-user)   NCAM_USER="${2:?}"; shift 2 ;;
+    --ncam-pass)   NCAM_PASS="${2:?}"; shift 2 ;;
     -y|--yes)      ASSUME_YES=1; shift ;;
     --force)       FORCE=1; shift ;;
     --uninstall)   ACTION=uninstall; shift ;;
@@ -329,6 +346,97 @@ EOF
   ok "node $(node -v)"
 fi
 
+# -------------------------------------------------------------- ncam build ---
+# Optional: build and install the softcam itself from vendor/ncam (or straight
+# from upstream when this script runs standalone).
+install_ncam() {
+  local port="${NCAM_PORT:-8888}" user="${NCAM_USER:-admin}" pass="$NCAM_PASS"
+  local src="" conf=/etc/ncam bin=/usr/local/bin/ncam
+
+  say "installing NCam (softcam)"
+  for p in build-essential pkg-config libssl-dev libusb-1.0-0-dev libpcsclite-dev zlib1g-dev; do
+    apt_ensure "$p" || warn "could not install $p (the build may fail)"
+  done
+
+  # Sources: the vendored tree, the clone made earlier, or a fresh clone.
+  for candidate in "$PANEL_DIR/../vendor/ncam" "$HERE/../../vendor/ncam" "${SRC_TMP:-}/vendor/ncam"; do
+    [ -n "$candidate" ] && [ -f "$candidate/Makefile" ] && { src="$candidate"; break; }
+  done
+  if [ -z "$src" ]; then
+    say "no vendored sources, cloning $NCAM_REPO"
+    have git || apt_ensure git || die "git is required to fetch NCam"
+    NCAM_TMP="$(mktemp -d /tmp/ncam-src.XXXXXX)"
+    git clone --depth 1 "$NCAM_REPO" "$NCAM_TMP" >/dev/null 2>&1 || die "cannot clone $NCAM_REPO"
+    src="$NCAM_TMP"
+  fi
+
+  say "compiling $src (this takes a few minutes)"
+  # Build out of tree-ish: NCam writes into build/ and Distribution/ only.
+  # shellcheck disable=SC2086
+  if ! ( cd "$src" && make -j"$(nproc)" CONF_DIR="$conf" $NCAM_MAKE_FLAGS >/tmp/ncam-build.log 2>&1 ); then
+    tail -20 /tmp/ncam-build.log >&2
+    die "NCam did not compile (full log: /tmp/ncam-build.log)"
+  fi
+
+  local built
+  built="$(ls -t "$src"/Distribution/ncam-*-linux-gnu* 2>/dev/null | grep -v '\.debug$' | head -1)"
+  [ -n "$built" ] || die "the build produced no binary in $src/Distribution"
+  install -m 755 "$built" "$bin"
+  ok "$bin installed ($(basename "$built"))"
+
+  # Minimal configuration, created only once: never touch an existing setup.
+  install -d -m 755 "$conf"
+  if [ ! -f "$conf/ncam.conf" ]; then
+    [ -n "$pass" ] || pass="$(head -c 9 /dev/urandom | base64 | tr -d '/+=' | head -c 12)"
+    cat > "$conf/ncam.conf" <<EOF
+# Minimal configuration written by the csp-panel installer.
+# Everything else can be edited from the panel (Config tab).
+[global]
+logfile                       = /var/log/ncam.log
+nice                          = -1
+preferlocalcards              = 1
+
+[webif]
+httpport                      = $port
+httpuser                      = $user
+httppwd                       = $pass
+httpallowed                   = 127.0.0.1,::1
+httprefresh                   = 5
+EOF
+    chmod 600 "$conf/ncam.conf"
+    [ -f "$conf/ncam.user" ] || printf '# add your accounts here, or from the panel\n' > "$conf/ncam.user"
+    [ -f "$conf/ncam.server" ] || printf '# add your readers here, or from the panel\n' > "$conf/ncam.server"
+    NCAM_CREDENTIALS="$user / $pass"
+    ok "wrote $conf/ncam.conf (webif on port $port, user $user)"
+  else
+    # Reuse what is already configured so the panel can log in.
+    port="$(sed -n 's/^[[:space:]]*httpport[[:space:]]*=[[:space:]]*+\?//p' "$conf/ncam.conf" | tail -1 | tr -d '[:space:]')"
+    port="${port:-8888}"
+    ok "keeping the existing $conf/ncam.conf (webif port $port)"
+  fi
+  NCAM_PORT="$port"
+
+  install -m 644 "$HERE/ncam.service" /lib/systemd/system/ncam.service 2>/dev/null \
+    || install -m 644 "$PANEL_DIR/packaging/ncam.service" /lib/systemd/system/ncam.service
+  if systemd_running; then
+    sctl daemon-reload
+    sctl enable ncam.service
+    systemctl restart ncam.service || warn "ncam.service did not start, check: journalctl -u ncam -n 40"
+    for _ in $(seq 1 20); do
+      curl -fsS -m 2 "http://127.0.0.1:${port}/" >/dev/null 2>&1 && break
+      curl -fsS -m 2 -o /dev/null -w '' "http://127.0.0.1:${port}/ncamapi.html" 2>/dev/null && break
+      sleep 0.5
+    done
+    if ss -lnt 2>/dev/null | grep -q ":${port}\b"; then
+      ok "ncam.service listening on 127.0.0.1:${port}"
+    else
+      warn "NCam is installed but its web interface is not answering on ${port} yet"
+    fi
+  else
+    warn "systemd is not running here; start NCam with: $bin -c $conf"
+  fi
+}
+
 # ----------------------------------------------------------- build the deb ---
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PANEL_DIR="$(dirname "$HERE")"
@@ -378,6 +486,14 @@ if ! apt-get install -y -qq "$DEB_FILE"; then
   dpkg -i "$DEB_FILE" || { apt-get -y -f install; dpkg -i "$DEB_FILE"; }
 fi
 ok "$PKG $(dpkg-query -W -f='${Version}' $PKG) installed"
+
+# --------------------------------------------------------------------- ncam ---
+if [ "$INSTALL_NCAM" = 1 ]; then
+  install_ncam
+  # The panel should obviously manage the softcam we just installed.
+  BACKEND="${BACKEND:-ncam}"
+  [ "$BACKEND" = ncam ] && TARGET_URL="${TARGET_URL:-http://127.0.0.1:${NCAM_PORT:-8888}}"
+fi
 
 # ---------------------------------------------------------- configuration ---
 say "configuring $CONF"
@@ -523,7 +639,10 @@ ${BOLD}csp-panel is installed.${OFF}
   status     systemctl status $SERVICE
   logs       journalctl -u $SERVICE -f
   remove     sudo bash $SELF --uninstall   ${DIM}(--purge to drop the config too)${OFF}
-
+${NCAM_CREDENTIALS:+
+  ${BOLD}NCam webif login: ${NCAM_CREDENTIALS}${OFF}
+  ${DIM}(stored in /etc/ncam/ncam.conf — use it to log into the panel)${OFF}
+}
 EOF
 
 # The default bind address is loopback: say so, because "it does not open" from

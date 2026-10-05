@@ -26,7 +26,7 @@ function createBackend(): ProxyBackend {
     const flavour = config.backend === 'ncam' ? NCAM_FLAVOUR : OSCAM_FLAVOUR;
     return config.mock
       ? new OscamClient(new MockOscamTransport(flavour), true, flavour)
-      : new OscamClient(new HttpOscamTransport(targetUrl), false, flavour);
+      : new OscamClient(new HttpOscamTransport(targetUrl, 15_000, flavour.label), false, flavour);
   }
   return config.mock ? new MockCspClient() : new HttpCspClient(config.cspUrl);
 }

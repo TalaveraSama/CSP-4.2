@@ -57,6 +57,7 @@ Docker: `docker build -t csp-panel panel && docker run -p 8090:8090 -e BACKEND=o
 
 | Target | How |
 | --- | --- |
+| **Ubuntu + NCam from scratch** | `sudo bash packaging/install-ubuntu.sh --install-ncam --backend ncam --yes` — compiles the vendored NCam ([`vendor/ncam`](../vendor/README.md)), installs `ncam.service` with its web interface enabled and points the panel at it |
 | **Ubuntu 20.04/22.04/24.04** | one command: `sudo bash packaging/install-ubuntu.sh --backend oscam\|ncam\|csp` — installs Node if needed, builds and installs the `.deb`, writes `/etc/csp-panel/panel.env`, starts systemd and can configure nginx ([guide in Spanish](packaging/INSTALL.es.md)) |
 | Debian/Ubuntu `.deb` | `bash packaging/build-deb.sh` → `build/csp-panel_<ver>_all.deb`; installs to `/usr/lib/csp-panel` with a `csp-panel.service` unit, `/etc/csp-panel/panel.env` and an unprivileged `csp-panel` user — see [`packaging/README.md`](packaging/README.md) |
 | **aaPanel** | Node project (PM2) + nginx reverse proxy — step by step in [`deploy/aapanel/README.md`](deploy/aapanel/README.md), with `install.sh`, `ecosystem.config.cjs` and ready nginx snippets |

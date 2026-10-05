@@ -1,0 +1,31 @@
+# generated binaries
+Distribution/ncam*
+Distribution/list_smargo*
+Distribution/ffdecsa*
+Distribution/*.zip
+Distribution/.*
+
+# backup/swap file for vi
+*~
+*.swp
+*.orig
+.revision
+
+# IDE resources
+.vscode
+
+# build directories
+/build/
+
+# Currently enabled config items
+webif/is_defined.txt
+
+# Testing program
+tests.bin
+tests.bin.debug
+
+# CCcam files
+CCcam.cfg
+
+# Emu files
+SoftCam.*

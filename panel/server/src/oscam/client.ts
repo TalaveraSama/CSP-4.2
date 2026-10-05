@@ -509,7 +509,7 @@ export class OscamClient implements ProxyBackend {
       const uptime = int(head, 'uptime') ?? 0;
       const total = cwok + cwnok + cwignore + cwtimeout + cwcache;
       snap.proxy = {
-        name: `OSCam ${attr(head, 'version') ?? ''}`.trim(),
+        name: `${this.flavour.label} ${attr(head, 'version') ?? ''}`.trim(),
         version: attr(head, 'version') ?? '',
         build: attr(head, 'revision'),
         started: attr(head, 'starttime') ?? '',
@@ -646,10 +646,15 @@ export class OscamClient implements ProxyBackend {
     if (!this.flavour.configFiles.includes(file)) throw new BackendError(`Unknown config file '${file}'`, 400);
     const root = await this.api(auth, { part: 'files', file });
     const node = arr(root.file)[0];
+    // Upstream quirk (module-webif.c in both OSCam and NCam): APIWRITABLE is
+    // written to the template *before* `writable` is computed, so the XML API
+    // always answers writable="0" for configuration files. The flag that
+    // really decides is httpreadonly, reported on the document root.
+    const readonly = attr(root, 'readonly') === '1';
     return {
       name: attr(node, 'filename') ?? file,
       content: txt(node),
-      writable: attr(node, 'writable') === '1',
+      writable: attr(node, 'writable') === '1' || !readonly,
     };
   }
 

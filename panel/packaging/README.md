@@ -24,6 +24,12 @@ if that host is unreachable (blocked, proxy, broken IPv6) it falls back to the
 checksum-verified tarball from `nodejs.org` unpacked into `/opt/node`. Use
 `--node-from nodesource|tarball|skip` and `NODE_MIRROR=...` to control it.
 
+It can also install the softcam itself: `--install-ncam` builds the vendored
+NCam tree (`vendor/ncam`, GPL-3), installs `/usr/local/bin/ncam` plus
+`ncam.service`, writes a minimal `/etc/ncam/ncam.conf` with the web interface
+on port 8888 (random password unless `--ncam-pass` is given) and configures the
+panel to manage it.
+
 Spanish step-by-step guide: [`INSTALL.es.md`](INSTALL.es.md).
 
 ## Build
